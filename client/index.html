@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EMERGENT</title>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #0a0a12; }
+    #hud {
+      position: fixed; top: 12px; left: 12px;
+      color: #cfe3ff; font-family: monospace; font-size: 13px;
+      user-select: none; pointer-events: none;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="hud">EMERGENT — day 1<br />WASD to move</div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
