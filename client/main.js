@@ -95,7 +95,12 @@ function makePlayerMesh(color, name) {
 }
 
 // --- Networking ---
-const socket = io();
+let pid = localStorage.getItem('emergent-pid');
+if (!pid) {
+  pid = crypto.randomUUID();
+  localStorage.setItem('emergent-pid', pid);
+}
+const socket = io({ auth: { pid } });
 let self = null; // our player mesh (locally simulated)
 const others = new Map(); // id -> { mesh, target: {x, z, ry} }
 const hud = document.getElementById('hud');
@@ -106,6 +111,8 @@ function updateHud(count) {
 
 socket.on('welcome', ({ self: me, players }) => {
   self = makePlayerMesh(me.color, me.name + ' (you)');
+  self.position.set(me.x, 0, me.z);
+  self.rotation.y = me.ry;
   scene.add(self);
   camera.position.copy(self.position).add(new THREE.Vector3(0, 7, 10));
   for (const p of players) if (p.id !== me.id) addOther(p);

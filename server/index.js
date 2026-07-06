@@ -2,6 +2,30 @@ const path = require('path');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const { DatabaseSync } = require('node:sqlite');
+
+// --- Persistence ---
+// node:sqlite is flagged experimental on Node 25 but stable in practice;
+// TODO: swap to better-sqlite3 only if an upgrade breaks it.
+const db = new DatabaseSync(path.join(__dirname, '..', 'world.sqlite'));
+db.exec(`
+  CREATE TABLE IF NOT EXISTS players (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    color INTEGER NOT NULL,
+    x REAL NOT NULL DEFAULT 0,
+    z REAL NOT NULL DEFAULT 0,
+    ry REAL NOT NULL DEFAULT 0,
+    last_seen INTEGER NOT NULL
+  )
+`);
+const getPlayer = db.prepare('SELECT * FROM players WHERE id = ?');
+const upsertPlayer = db.prepare(`
+  INSERT INTO players (id, name, color, x, z, ry, last_seen)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET x=excluded.x, z=excluded.z, ry=excluded.ry, last_seen=excluded.last_seen
+`);
+const countPlayers = db.prepare('SELECT COUNT(*) AS n FROM players');
 
 const app = express();
 const server = http.createServer(app);
@@ -12,26 +36,25 @@ app.use(express.static(path.join(__dirname, '..', 'client')));
 // World state: the server's player table is the source of truth for who exists.
 // TODO(server-authority): positions are still client-reported; later the client
 // should send inputs and the server should simulate movement itself.
-const players = new Map(); // socket.id -> { id, x, z, ry, color, name }
+const players = new Map(); // socket.id -> { id, x, z, ry, color, name, pid }
 
 const PALETTE = [0xe07a5f, 0x3d8bd4, 0xf2cc8f, 0x81b29a, 0xb56dc4, 0xe8628c];
-let joinCount = 0;
 
 io.on('connection', (socket) => {
-  const player = {
-    id: socket.id,
-    x: 0,
-    z: 0,
-    ry: 0,
-    color: PALETTE[joinCount++ % PALETTE.length],
-    name: `wanderer-${joinCount}`,
-  };
+  // pid is the client's persistent identity (localStorage UUID); socket.id is per-connection
+  const pid = typeof socket.handshake.auth?.pid === 'string' ? socket.handshake.auth.pid.slice(0, 64) : socket.id;
+  const saved = getPlayer.get(pid);
+  const n = countPlayers.get().n;
+  const player = saved
+    ? { id: socket.id, pid, x: saved.x, z: saved.z, ry: saved.ry, color: saved.color, name: saved.name }
+    : { id: socket.id, pid, x: 0, z: 0, ry: 0, color: PALETTE[n % PALETTE.length], name: `wanderer-${n + 1}` };
   players.set(socket.id, player);
+  upsertPlayer.run(pid, player.name, player.color, player.x, player.z, player.ry, Date.now());
   console.log(`${player.name} connected (${players.size} online)`);
 
-  // tell the newcomer who they are and who's already here
-  socket.emit('welcome', { self: player, players: [...players.values()] });
-  socket.broadcast.emit('player-joined', player);
+  // tell the newcomer who they are and who's already here (pid stays server-side)
+  socket.emit('welcome', { self: publicView(player), players: [...players.values()].map(publicView) });
+  socket.broadcast.emit('player-joined', publicView(player));
 
   socket.on('move', (data) => {
     const p = players.get(socket.id);
@@ -42,15 +65,27 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    const p = players.get(socket.id);
+    if (p) upsertPlayer.run(p.pid, p.name, p.color, p.x, p.z, p.ry, Date.now());
     players.delete(socket.id);
     io.emit('player-left', socket.id);
     console.log(`${player.name} disconnected (${players.size} online)`);
   });
 });
 
+// flush positions to SQLite every 5s so a crash loses at most 5s of movement
+setInterval(() => {
+  const now = Date.now();
+  for (const p of players.values()) upsertPlayer.run(p.pid, p.name, p.color, p.x, p.z, p.ry, now);
+}, 5000);
+
+function publicView({ id, name, color, x, z, ry }) {
+  return { id, name, color, x, z, ry };
+}
+
 // broadcast a world snapshot at 20Hz
 setInterval(() => {
-  if (players.size > 0) io.emit('snapshot', [...players.values()]);
+  if (players.size > 0) io.emit('snapshot', [...players.values()].map(publicView));
 }, 50);
 
 const PORT = process.env.PORT || 3000;
