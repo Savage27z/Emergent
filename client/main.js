@@ -52,36 +52,80 @@ function makeNameTag(text) {
 function makeHat(kind) {
   if (kind === 'cone') {
     const hat = new THREE.Mesh(
-      new THREE.ConeGeometry(0.32, 0.6, 8),
+      new THREE.ConeGeometry(0.3, 0.55, 8),
       new THREE.MeshLambertMaterial({ color: 0xf25c9a })
     );
-    hat.position.y = 1.85;
+    hat.position.y = 2.05;
     hat.castShadow = true;
     return hat;
   }
   if (kind === 'crown') {
     const hat = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.3, 0.24, 0.28, 6, 1, true),
+      new THREE.CylinderGeometry(0.26, 0.21, 0.26, 6, 1, true),
       new THREE.MeshLambertMaterial({ color: 0xf2c94c, side: THREE.DoubleSide })
     );
-    hat.position.y = 1.72;
+    hat.position.y = 1.9;
     hat.castShadow = true;
     return hat;
   }
   return null;
 }
 
+// little low-poly person: swinging limbs, eyes, optional hat
 function makePlayerMesh(color, name, hat = 'none') {
+  const base = new THREE.Color(color);
+  const skin = base.clone().lerp(new THREE.Color(0xffffff), 0.45);
+  const pants = base.clone().lerp(new THREE.Color(0x000000), 0.35);
+  const bodyMat = new THREE.MeshLambertMaterial({ color: base });
+  const skinMat = new THREE.MeshLambertMaterial({ color: skin });
+  const pantsMat = new THREE.MeshLambertMaterial({ color: pants });
+  const eyeMat = new THREE.MeshLambertMaterial({ color: 0x1a1a2e });
+
   const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.8, 1.6, 0.8),
-    new THREE.MeshLambertMaterial({ color })
-  );
-  body.position.y = 0.8;
-  body.castShadow = true;
-  group.add(body, makeNameTag(name));
+
+  const legGeo = new THREE.BoxGeometry(0.22, 0.65, 0.26);
+  legGeo.translate(0, -0.325, 0); // pivot at the hip
+  const legL = new THREE.Mesh(legGeo, pantsMat);
+  const legR = new THREE.Mesh(legGeo.clone(), pantsMat);
+  legL.position.set(-0.16, 0.65, 0);
+  legR.position.set(0.16, 0.65, 0);
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.7, 0.4), bodyMat);
+  body.position.y = 1.0;
+
+  const armGeo = new THREE.BoxGeometry(0.16, 0.6, 0.2);
+  armGeo.translate(0, -0.3, 0); // pivot at the shoulder
+  const armL = new THREE.Mesh(armGeo, bodyMat);
+  const armR = new THREE.Mesh(armGeo.clone(), bodyMat);
+  armL.position.set(-0.42, 1.32, 0);
+  armR.position.set(0.42, 1.32, 0);
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.42, 0.42), skinMat);
+  head.position.y = 1.57;
+  const eyeGeo = new THREE.BoxGeometry(0.07, 0.07, 0.04);
+  const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+  const eyeR = new THREE.Mesh(eyeGeo.clone(), eyeMat);
+  eyeL.position.set(-0.11, 1.6, 0.22);
+  eyeR.position.set(0.11, 1.6, 0.22);
+
+  for (const m of [legL, legR, body, armL, armR, head]) m.castShadow = true;
+  group.add(legL, legR, body, armL, armR, head, eyeL, eyeR);
+
+  const tag = makeNameTag(name);
+  tag.position.y = 2.5;
+  group.add(tag);
   const hatMesh = makeHat(hat);
   if (hatMesh) group.add(hatMesh);
+
+  // walk ∈ [0,1]; t drives the stride
+  group.userData.animate = (walk, t) => {
+    const swing = Math.sin(t * 9) * 0.7 * walk;
+    legL.rotation.x = swing;
+    legR.rotation.x = -swing;
+    armL.rotation.x = -swing * 0.8;
+    armR.rotation.x = swing * 0.8;
+    body.position.y = 1.0 + Math.abs(Math.sin(t * 9)) * 0.05 * walk;
+  };
   return group;
 }
 
@@ -260,6 +304,8 @@ const GRAVITY = 30;
 const JUMP_V = 9;
 let vy = 0;
 let airborne = false;
+let selfWalk = 0; // smoothed 0..1 walk blend
+let selfStride = 0; // accumulated stride time
 const clock = new THREE.Clock();
 let elapsed = DAY_LENGTH * 0.2; // overwritten by server snapshots; offset = mid-morning start
 
@@ -274,12 +320,16 @@ function tick() {
     const dir = new THREE.Vector3()
       .addScaledVector(fwd, (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0))
       .addScaledVector(right, (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0));
-    if (dir.lengthSq() > 0) {
+    const sprinting = keys.ShiftLeft || keys.ShiftRight;
+    const moving = dir.lengthSq() > 0;
+    if (moving) {
       dir.normalize();
-      const speed = keys.ShiftLeft || keys.ShiftRight ? SPRINT_SPEED : WALK_SPEED;
-      self.position.addScaledVector(dir, speed * dt);
+      self.position.addScaledVector(dir, (sprinting ? SPRINT_SPEED : WALK_SPEED) * dt);
       self.rotation.y = Math.atan2(dir.x, dir.z);
     }
+    selfWalk += ((moving ? 1 : 0) - selfWalk) * Math.min(1, dt * 12);
+    selfStride += dt * (moving ? (sprinting ? 1.7 : 1) : 0);
+    self.userData.animate(selfWalk, selfStride);
     self.position.x = THREE.MathUtils.clamp(self.position.x, -58, 58);
     self.position.z = THREE.MathUtils.clamp(self.position.z, -58, 58);
 
@@ -319,11 +369,19 @@ function tick() {
   }
 
   // interpolate other players toward their latest snapshot
-  for (const { mesh, target } of others.values()) {
-    mesh.position.x += (target.x - mesh.position.x) * 0.2;
-    mesh.position.z += (target.z - mesh.position.z) * 0.2;
+  for (const o of others.values()) {
+    const { mesh, target } = o;
+    const dx = target.x - mesh.position.x;
+    const dz = target.z - mesh.position.z;
+    mesh.position.x += dx * 0.2;
+    mesh.position.z += dz * 0.2;
     mesh.position.y = heightAt(mesh.position.x, mesh.position.z);
     mesh.rotation.y += (target.ry - mesh.rotation.y) * 0.2;
+    // walk blend from how fast they're actually moving
+    const speed = Math.hypot(dx, dz) * 0.2 / Math.max(dt, 1e-4);
+    o.walk = (o.walk ?? 0) + (Math.min(1, speed / 3) - (o.walk ?? 0)) * Math.min(1, dt * 10);
+    o.stride = (o.stride ?? 0) + dt * (o.walk > 0.05 ? 1 : 0);
+    mesh.userData.animate(o.walk, o.stride);
   }
 
   const timeOfDay = updateDayNight(elapsed, self?.position);
