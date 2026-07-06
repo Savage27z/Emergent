@@ -32,19 +32,20 @@ const updateDayNight = makeDayNight(scene, sun, ambient);
 // --- Player meshes ---
 function makeNameTag(text) {
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
+  canvas.width = 512;
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
   ctx.font = 'bold 24px monospace';
   ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(0,0,0,0.4)';
-  ctx.fillRect(0, 8, 256, 48);
+  const w = Math.min(500, ctx.measureText(text).width + 24);
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(256 - w / 2, 8, w, 48);
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(text, 128, 42);
+  ctx.fillText(text, 256, 42);
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false })
   );
-  sprite.scale.set(2.4, 0.6, 1);
+  sprite.scale.set(4.8, 0.6, 1);
   sprite.position.y = 2.2;
   return sprite;
 }
@@ -225,7 +226,13 @@ function connect(profile) {
       if (!p.id.startsWith('npc-')) playerCount++;
       if (p.id === socket.id) continue; // we simulate ourselves (welcome may not have landed yet)
       seen.add(p.id);
-      const o = others.get(p.id) ?? addOther(p);
+      let o = others.get(p.id) ?? addOther(p);
+      // NPC activity changed → rebuild so the tag shows what they're doing
+      if (p.status !== undefined && o.status !== p.status) {
+        scene.remove(o.mesh);
+        others.delete(p.id);
+        o = addOther(p);
+      }
       o.target = { x: p.x, z: p.z, ry: p.ry };
     }
     // the snapshot is authoritative: drop anyone the server no longer knows
@@ -253,10 +260,11 @@ function connect(profile) {
 
 function addOther(p) {
   if (others.has(p.id)) return others.get(p.id);
-  const mesh = makePlayerMesh(p.color, p.name, p.hat);
+  const label = p.status ? `${p.name} · ${p.status}` : p.name;
+  const mesh = makePlayerMesh(p.color, label, p.hat);
   mesh.position.set(p.x, heightAt(p.x, p.z), p.z);
   scene.add(mesh);
-  const entry = { mesh, target: { x: p.x, z: p.z, ry: p.ry } };
+  const entry = { mesh, target: { x: p.x, z: p.z, ry: p.ry }, status: p.status };
   others.set(p.id, entry);
   return entry;
 }

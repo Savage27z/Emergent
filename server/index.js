@@ -96,33 +96,77 @@ setInterval(() => {
   for (const p of players.values()) upsertPlayer.run(p.pid, p.name, p.color, p.x, p.z, p.ry, p.hat, now);
 }, 5000);
 
-function publicView({ id, name, color, x, z, ry, hat }) {
-  return { id, name, color, x, z, ry, hat: hat ?? 'none' };
+function publicView({ id, name, color, x, z, ry, hat, status }) {
+  return { id, name, color, x, z, ry, hat: hat ?? 'none', status };
 }
 
 // --- NPCs (server-simulated) ---
-// No brain yet: random wander. This is the slot where the agent module's
-// planner will plug in — it will emit actions instead of random headings.
-const npcs = [
-  { id: 'npc-ember', name: 'Ember', color: 0xd94f30, x: 8, z: 8, ry: 0, heading: 0, idle: 0 },
+// Routine skeleton, still no brain: a time-of-day schedule picks a place and
+// an activity. This is exactly the slot where the agent module's planner will
+// plug in — it will emit (place, activity) pairs instead of this table.
+const DAY_LENGTH = 180; // keep in sync with client/world.js — TODO share module
+const TIME_OFFSET = 0.2; // client starts the day mid-morning
+
+// named places NPCs know about (village coords; y comes from client terrain)
+const PLACES = {
+  campfire: { x: 0, z: 0 },
+  lake: { x: -16, z: 2 },
+  home: { x: 0, z: -6.4 }, // outside the north house's door
+};
+
+// [from, to) in day-fraction: 0 = dawn, 0.25 = noon, 0.5 = dusk
+const SCHEDULE = [
+  { from: 0.0, to: 0.18, place: 'campfire', activity: 'warming up' },
+  { from: 0.18, to: 0.4, place: 'lake', activity: 'fishing' },
+  { from: 0.4, to: 0.55, place: 'campfire', activity: 'cooking' },
+  { from: 0.55, to: 1.0, place: 'home', activity: 'sleeping' },
 ];
 
-const NPC_SPEED = 2.5;
+const npcs = [
+  { id: 'npc-ember', name: 'Ember', color: 0xd94f30, x: 8, z: 8, ry: 0, status: '', wanderT: 0 },
+];
+
+const NPC_SPEED = 2.2;
 setInterval(() => {
   const dt = 0.1;
+  const dayT = ((Date.now() - worldStart) / 1000 / DAY_LENGTH + TIME_OFFSET) % 1;
   for (const npc of npcs) {
-    if (npc.idle > 0) {
-      npc.idle -= dt;
-      continue;
+    const slot = SCHEDULE.find((s) => dayT >= s.from && dayT < s.to) ?? SCHEDULE[0];
+    const place = PLACES[slot.place];
+    const dist = Math.hypot(place.x - npc.x, place.z - npc.z);
+
+    let status;
+    // hysteresis: only switch to travelling if we've drifted well away
+    const travelling = npc.status.startsWith('heading') ? dist > 1.5 : dist > 3.5;
+    if (travelling) {
+      // travel toward the scheduled place
+      const heading = Math.atan2(place.x - npc.x, place.z - npc.z);
+      npc.x += Math.sin(heading) * NPC_SPEED * dt;
+      npc.z += Math.cos(heading) * NPC_SPEED * dt;
+      npc.ry = heading;
+      status = `heading to the ${slot.place}`;
+    } else {
+      // arrived: idle around the spot (sleepers hold still)
+      status = slot.activity;
+      if (slot.activity !== 'sleeping') {
+        npc.wanderT -= dt;
+        if (npc.wanderT <= 0) {
+          npc.wanderT = 2 + Math.random() * 3;
+          // drift back toward the spot if straying, otherwise amble freely
+          npc.ry = dist > 1.5
+            ? Math.atan2(place.x - npc.x, place.z - npc.z)
+            : Math.random() * Math.PI * 2;
+        }
+        if (Math.random() < 0.5) {
+          npc.x += Math.sin(npc.ry) * NPC_SPEED * 0.3 * dt;
+          npc.z += Math.cos(npc.ry) * NPC_SPEED * 0.3 * dt;
+        }
+      }
     }
-    // occasionally stop and look around, or pick a new heading
-    if (Math.random() < 0.02) npc.idle = 1 + Math.random() * 3;
-    if (Math.random() < 0.03) npc.heading = Math.random() * Math.PI * 2;
-    npc.x += Math.sin(npc.heading) * NPC_SPEED * dt;
-    npc.z += Math.cos(npc.heading) * NPC_SPEED * dt;
-    // stay near the village center
-    if (Math.hypot(npc.x, npc.z) > 25) npc.heading = Math.atan2(-npc.x, -npc.z);
-    npc.ry = npc.heading;
+    if (status !== npc.status) {
+      npc.status = status;
+      console.log(`[${dayT.toFixed(2)}] Ember is now ${status}`);
+    }
   }
 }, 100);
 
