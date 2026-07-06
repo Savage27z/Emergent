@@ -110,9 +110,14 @@ setInterval(() => {
 }, 100);
 
 // broadcast a world snapshot at 20Hz (players + NPCs share the pipeline)
+// world time is server-owned so all clients share the same day/night
+const worldStart = Date.now();
 setInterval(() => {
   if (players.size > 0) {
-    io.emit('snapshot', [...players.values(), ...npcs].map(publicView));
+    io.emit('snapshot', {
+      time: (Date.now() - worldStart) / 1000,
+      entities: [...players.values(), ...npcs].map(publicView),
+    });
   }
 }, 50);
 

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { buildWorld, heightAt, makeDayNight, DAY_LENGTH } from './world.js';
 
 // --- Scene ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87b5e0); // hazy day sky
+scene.background = new THREE.Color(0x87b5e0);
 scene.fog = new THREE.Fog(0x87b5e0, 40, 90);
 
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 200);
@@ -21,46 +22,12 @@ sun.shadow.camera.right = 40;
 sun.shadow.camera.top = 40;
 sun.shadow.camera.bottom = -40;
 scene.add(sun);
-scene.add(new THREE.AmbientLight(0xbfd4ff, 0.6));
+const ambient = new THREE.AmbientLight(0xbfd4ff, 0.6);
+scene.add(ambient);
 
-// --- Ground ---
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(120, 120),
-  new THREE.MeshLambertMaterial({ color: 0x6aa84f })
-);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
-
-// --- Trees (seeded so every client sees the same forest) ---
-function mulberry32(a) {
-  return () => {
-    a |= 0; a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-const rand = mulberry32(20260706);
-const rng = (min, max) => min + rand() * (max - min);
-for (let i = 0; i < 30; i++) {
-  const h = rng(1, 3);
-  const tree = new THREE.Group();
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.15, 0.2, h * 0.5, 5),
-    new THREE.MeshLambertMaterial({ color: 0x7a5230 })
-  );
-  trunk.position.y = h * 0.25;
-  const crown = new THREE.Mesh(
-    new THREE.ConeGeometry(rng(0.6, 1.1), h, 6),
-    new THREE.MeshLambertMaterial({ color: 0x3f7d3a })
-  );
-  crown.position.y = h * 0.5 + h * 0.45;
-  trunk.castShadow = crown.castShadow = true;
-  tree.add(trunk, crown);
-  tree.position.set(rng(-50, 50), 0, rng(-50, 50));
-  if (tree.position.length() > 6) scene.add(tree); // keep spawn area clear
-}
+// --- World ---
+buildWorld(scene);
+const updateDayNight = makeDayNight(scene, sun, ambient);
 
 // --- Player meshes ---
 function makeNameTag(text) {
@@ -105,32 +72,25 @@ let self = null; // our player mesh (locally simulated)
 const others = new Map(); // id -> { mesh, target: {x, z, ry} }
 const hud = document.getElementById('hud');
 
-function updateHud(count) {
-  hud.innerHTML = `EMERGENT — day 1<br />WASD to move · ${count} online`;
+function updateHud(count, timeOfDay) {
+  const icons = ['🌅', '☀️', '🌇', '🌙'];
+  const icon = icons[Math.floor((timeOfDay ?? 0.25) * 4) % 4];
+  hud.innerHTML = `EMERGENT — day 1<br />WASD to move · ${count} online · ${icon}`;
 }
 
-socket.on('welcome', ({ self: me, players }) => {
+socket.on('welcome', ({ self: me }) => {
   self = makePlayerMesh(me.color, me.name + ' (you)');
-  self.position.set(me.x, 0, me.z);
+  self.position.set(me.x, heightAt(me.x, me.z), me.z);
   self.rotation.y = me.ry;
   scene.add(self);
   camera.position.copy(self.position).add(new THREE.Vector3(0, 7, 10));
-  for (const p of players) if (p.id !== me.id) addOther(p);
-  updateHud(players.length);
 });
 
-// join/leave are handled by snapshot reconciliation (20Hz), which also owns the HUD count
-socket.on('player-left', (id) => {
-  const o = others.get(id);
-  if (o) {
-    scene.remove(o.mesh);
-    others.delete(id);
-  }
-});
-
-socket.on('snapshot', (entities) => {
+let playerCount = 1;
+socket.on('snapshot', ({ time, entities }) => {
+  elapsed = time + DAY_LENGTH * 0.2; // server owns world time; offset starts us mid-morning
   const seen = new Set();
-  let playerCount = 0;
+  playerCount = 0;
   for (const p of entities) {
     if (!p.id.startsWith('npc-')) playerCount++;
     if (p.id === socket.id) continue; // we simulate ourselves (welcome may not have landed yet)
@@ -139,20 +99,26 @@ socket.on('snapshot', (entities) => {
     o.target = { x: p.x, z: p.z, ry: p.ry };
   }
   // the snapshot is authoritative: drop anyone the server no longer knows
-  // (covers the race where a stale snapshot re-adds a player after player-left)
   for (const [id, o] of others) {
     if (!seen.has(id)) {
       scene.remove(o.mesh);
       others.delete(id);
     }
   }
-  updateHud(playerCount);
+});
+
+socket.on('player-left', (id) => {
+  const o = others.get(id);
+  if (o) {
+    scene.remove(o.mesh);
+    others.delete(id);
+  }
 });
 
 function addOther(p) {
   if (others.has(p.id)) return others.get(p.id);
   const mesh = makePlayerMesh(p.color, p.name);
-  mesh.position.set(p.x, 0, p.z);
+  mesh.position.set(p.x, heightAt(p.x, p.z), p.z);
   scene.add(mesh);
   const entry = { mesh, target: { x: p.x, z: p.z, ry: p.ry } };
   others.set(p.id, entry);
@@ -172,9 +138,11 @@ addEventListener('keyup', (e) => (keys[e.code] = false));
 // --- Game loop (local movement is predicted client-side; server relays) ---
 const SPEED = 8;
 const clock = new THREE.Clock();
+let elapsed = DAY_LENGTH * 0.2; // overwritten by server snapshots; offset = mid-morning start
 
 function tick() {
   const dt = Math.min(clock.getDelta(), 0.05);
+  elapsed += dt; // advance locally between snapshots
 
   if (self) {
     const dir = new THREE.Vector3(
@@ -189,18 +157,27 @@ function tick() {
     }
     self.position.x = THREE.MathUtils.clamp(self.position.x, -58, 58);
     self.position.z = THREE.MathUtils.clamp(self.position.z, -58, 58);
+    self.position.y = heightAt(self.position.x, self.position.z);
 
     const camTarget = self.position.clone().add(new THREE.Vector3(0, 7, 10));
     camera.position.lerp(camTarget, 0.08);
     camera.lookAt(self.position.x, self.position.y + 1, self.position.z);
+
+    // keep the shadow camera centred on the action as the sun orbits
+    sun.target.position.copy(self.position);
+    sun.target.updateMatrixWorld();
   }
 
   // interpolate other players toward their latest snapshot
   for (const { mesh, target } of others.values()) {
     mesh.position.x += (target.x - mesh.position.x) * 0.2;
     mesh.position.z += (target.z - mesh.position.z) * 0.2;
+    mesh.position.y = heightAt(mesh.position.x, mesh.position.z);
     mesh.rotation.y += (target.ry - mesh.rotation.y) * 0.2;
   }
+
+  const timeOfDay = updateDayNight(elapsed, self?.position);
+  updateHud(playerCount, timeOfDay);
 
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
