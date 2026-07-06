@@ -4,11 +4,24 @@
 import * as THREE from 'three';
 
 // Messenger (messenger.abeto.co) is the vibe: a small dense cozy world beats
-// a big empty one. Keep the map tight and pack the detail near the village.
+// a big empty one, and the look is hand-drawn anime cel-shading — flat color
+// bands, ink outlines, painted teal sky, pastel palette.
 export const WORLD_SEED = 20260706;
 export const WORLD_SIZE = 90; // world spans [-45, 45]
 export const BOUND = WORLD_SIZE / 2 - 3; // walkable limit
 export const WATER_Y = -0.55;
+
+// --- Cel shading: every surface uses a 3-step toon material ---
+const gradientMap = (() => {
+  const data = new Uint8Array([90, 180, 255]); // shadow / mid / lit bands
+  const tex = new THREE.DataTexture(data, 3, 1, THREE.RedFormat);
+  tex.needsUpdate = true;
+  return tex;
+})();
+
+export function toon(color, extra = {}) {
+  return new THREE.MeshToonMaterial({ color, gradientMap, ...extra });
+}
 
 // --- Seeded noise (value noise + fbm) ---
 function mulberry32(a) {
@@ -75,10 +88,11 @@ export function buildWorld(scene) {
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
-  const sand = new THREE.Color(0xd9c48b);
-  const grass = new THREE.Color(0x7cbb5e);
-  const dark = new THREE.Color(0x578a45);
-  const rock = new THREE.Color(0x9a968c);
+  // desaturated pastel palette, Messenger-style
+  const sand = new THREE.Color(0xe6d7ae);
+  const grass = new THREE.Color(0x9ec27a);
+  const dark = new THREE.Color(0x7ba865);
+  const rock = new THREE.Color(0xb5b2a6);
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const h = heightAt(pos.getX(i), pos.getZ(i));
@@ -90,15 +104,16 @@ export function buildWorld(scene) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
-  const terrain = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const terrain = new THREE.Mesh(geo, toon(0xffffff, { vertexColors: true }));
   terrain.receiveShadow = true;
   scene.add(terrain);
 
   // Water (an ocean: reaches past the fog so the island floats in sea, not void)
   const water = new THREE.Mesh(
     new THREE.PlaneGeometry(600, 600),
-    new THREE.MeshLambertMaterial({ color: 0x4292c4, transparent: true, opacity: 0.85 })
+    toon(0x6cc4c9, { transparent: true, opacity: 0.9 })
   );
+  water.material.userData.outlineParameters = { visible: false };
   water.rotation.x = -Math.PI / 2;
   water.position.y = WATER_Y;
   scene.add(water);
@@ -107,10 +122,10 @@ export function buildWorld(scene) {
   };
 
   // Trees, rocks, grass tufts — placed on land only
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5230 });
-  const crownMat = new THREE.MeshLambertMaterial({ color: 0x3f7d3a });
-  const rockMat = new THREE.MeshLambertMaterial({ color: 0x9a9a90 });
-  const tuftMat = new THREE.MeshLambertMaterial({ color: 0x55964a });
+  const trunkMat = toon(0x9a7350);
+  const crownMat = toon(0x76a86b);
+  const rockMat = toon(0xb8b5a8);
+  const tuftMat = toon(0x8ab06a);
 
   for (let i = 0; i < 55; i++) {
     const x = rng(-BOUND, BOUND), z = rng(-BOUND, BOUND);
@@ -158,18 +173,18 @@ function makeHouse(wallColor) {
   const house = new THREE.Group();
   const walls = new THREE.Mesh(
     new THREE.BoxGeometry(3, 2.2, 2.6),
-    new THREE.MeshLambertMaterial({ color: wallColor })
+    toon(wallColor)
   );
   walls.position.y = 1.1;
   const roof = new THREE.Mesh(
     new THREE.ConeGeometry(2.6, 1.6, 4),
-    new THREE.MeshLambertMaterial({ color: 0x8a4b32 })
+    toon(0xb06a52)
   );
   roof.position.y = 3;
   roof.rotation.y = Math.PI / 4;
   const door = new THREE.Mesh(
     new THREE.BoxGeometry(0.7, 1.3, 0.1),
-    new THREE.MeshLambertMaterial({ color: 0x5a3a22 })
+    toon(0x6f4c34)
   );
   door.position.set(0, 0.65, 1.33);
   walls.castShadow = roof.castShadow = true;
@@ -196,7 +211,7 @@ function buildVillage(scene) {
   // campfire at the village centre
   CAMPFIRE_POS.set(0, heightAt(0, 0), 0);
   const fire = new THREE.Group();
-  const logMat = new THREE.MeshLambertMaterial({ color: 0x5a3a22 });
+  const logMat = toon(0x7c5a3e);
   for (let i = 0; i < 3; i++) {
     const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.1, 5), logMat);
     log.rotation.z = Math.PI / 2.3;
@@ -210,7 +225,7 @@ function buildVillage(scene) {
   );
   flame.position.y = 0.5;
   fire.add(flame);
-  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x8d8d84 });
+  const stoneMat = toon(0xb0ada0);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     const stone = new THREE.Mesh(new THREE.DodecahedronGeometry(0.16, 0), stoneMat);
@@ -226,8 +241,9 @@ function buildVillage(scene) {
   scene.add(fireLight);
 
   // --- cozy layer: paths, fences, lanterns, flowers, seats, dock ---
-  const pathMat = new THREE.MeshLambertMaterial({ color: 0xc9a878 });
-  const woodMat = new THREE.MeshLambertMaterial({ color: 0x8a6844 });
+  const pathMat = toon(0xd8bd90);
+  pathMat.userData.outlineParameters = { visible: false }; // flat decals, no ink
+  const woodMat = toon(0x9a7a56);
 
   // dirt path: patches from the campfire out to each house and toward the lake
   const pathTo = (tx, tz) => {
@@ -298,10 +314,10 @@ function buildVillage(scene) {
     const h = heightAt(x, z);
     if (h < WATER_Y + 0.3) continue;
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.25, 4),
-      new THREE.MeshLambertMaterial({ color: 0x55964a }));
+      toon(0x8ab06a));
     stem.position.set(x, h + 0.12, z);
     const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6),
-      new THREE.MeshLambertMaterial({ color: flowerColors[i % flowerColors.length] }));
+      toon(flowerColors[i % flowerColors.length]));
     bloom.position.set(x, h + 0.27, z);
     scene.add(stem, bloom);
   }
@@ -340,7 +356,7 @@ function buildVillage(scene) {
 }
 
 function buildClouds(scene, rand) {
-  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  const mat = toon(0xf4f9f0, { transparent: true, opacity: 0.92 });
   const clouds = [];
   for (let i = 0; i < 10; i++) {
     const cloud = new THREE.Group();
@@ -366,9 +382,10 @@ function buildClouds(scene, rand) {
 // --- Day/night cycle ---
 export const DAY_LENGTH = 180; // seconds per full day, tuned for demos
 
-const DAY_SKY = new THREE.Color(0x9ccdf0);
-const DUSK_SKY = new THREE.Color(0xe89a72);
-const NIGHT_SKY = new THREE.Color(0x101430);
+// painted-teal sky, Messenger-style
+const DAY_SKY = new THREE.Color(0x8fd4c9);
+const DUSK_SKY = new THREE.Color(0xe8a87a);
+const NIGHT_SKY = new THREE.Color(0x16283e);
 
 export function makeDayNight(scene, sun, ambient) {
   // gradient sky dome: horizon lightens toward the ground like real atmosphere
@@ -395,6 +412,7 @@ export function makeDayNight(scene, sun, ambient) {
     })
   );
   skyDome.renderOrder = -1;
+  skyDome.material.userData.outlineParameters = { visible: false };
   scene.add(skyDome);
   // stars: points on a dome, visible only at night
   const starGeo = new THREE.BufferGeometry();
@@ -450,7 +468,7 @@ export function makeDayNight(scene, sun, ambient) {
     scene.fog.color.copy(sky);
     // dome follows the same palette; horizon stays a touch brighter
     skyUniforms.topColor.value.copy(sky);
-    skyUniforms.horizonColor.value.copy(sky).lerp(new THREE.Color(0xfff4e2), 0.35 + duskness * 0.3);
+    skyUniforms.horizonColor.value.copy(sky).lerp(new THREE.Color(0xf4f1e0), 0.4 + duskness * 0.3);
     if (playerPos) skyDome.position.set(playerPos.x, 0, playerPos.z);
 
     const nightness = Math.max(0, 1 - dayness * 3);

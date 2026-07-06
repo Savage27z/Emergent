@@ -4,57 +4,67 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EMERGENT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet" />
   <style>
-    html, body { margin: 0; padding: 0; overflow: hidden; background: #0a0a12; }
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #8fd4c9; }
+    * { font-family: 'Patrick Hand', 'Segoe Print', 'Comic Sans MS', cursive; }
     #hud {
       position: fixed; top: 12px; left: 12px;
-      color: #cfe3ff; font-family: monospace; font-size: 13px;
+      background: #fbf7ee; color: #211d1a; font-size: 15px; line-height: 1.4;
+      border: 2.5px solid #211d1a; border-radius: 10px; padding: 8px 14px;
+      transform: rotate(-0.6deg);
       user-select: none; pointer-events: none;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+      box-shadow: 2px 3px 0 rgba(33, 29, 26, 0.25);
     }
     #join {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: rgba(10, 10, 18, 0.85); font-family: monospace; color: #cfe3ff;
+      background: rgba(143, 212, 201, 0.55); color: #211d1a;
     }
     #join .card {
-      background: #141422; border: 1px solid #2b2b44; border-radius: 10px;
+      background: #fbf7ee; border: 3px solid #211d1a; border-radius: 14px;
       padding: 28px 32px; width: 300px; text-align: center;
+      transform: rotate(-0.5deg);
+      box-shadow: 4px 5px 0 rgba(33, 29, 26, 0.3);
     }
-    #join h1 { font-size: 20px; letter-spacing: 4px; margin: 0 0 18px; }
-    #join label { display: block; text-align: left; font-size: 11px; opacity: 0.7; margin: 14px 0 6px; }
+    #join h1 { font-size: 26px; letter-spacing: 5px; margin: 0 0 18px; }
+    #join label { display: block; text-align: left; font-size: 14px; opacity: 0.65; margin: 14px 0 6px; }
     #join input {
-      width: 100%; box-sizing: border-box; background: #0a0a12; color: #cfe3ff;
-      border: 1px solid #2b2b44; border-radius: 6px; padding: 8px; font-family: monospace;
+      width: 100%; box-sizing: border-box; background: #fff; color: #211d1a; font-size: 16px;
+      border: 2px solid #211d1a; border-radius: 8px; padding: 8px;
     }
     .swatches { display: flex; gap: 8px; justify-content: center; }
     .swatch {
-      width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
-      border: 2px solid transparent;
+      width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+      border: 2.5px solid rgba(33, 29, 26, 0.25);
     }
-    .swatch.sel { border-color: #ffffff; }
+    .swatch.sel { border-color: #211d1a; }
     .hats { display: flex; gap: 8px; justify-content: center; }
     .hat {
-      flex: 1; padding: 6px 0; background: #0a0a12; border: 2px solid #2b2b44;
-      border-radius: 6px; cursor: pointer; color: #cfe3ff; font-family: monospace; font-size: 12px;
+      flex: 1; padding: 6px 0; background: #fff; border: 2px solid rgba(33, 29, 26, 0.25);
+      border-radius: 8px; cursor: pointer; color: #211d1a; font-size: 14px;
     }
-    .hat.sel { border-color: #ffffff; }
+    .hat.sel { border-color: #211d1a; background: #ffe9b8; }
     #enter {
       margin-top: 22px; width: 100%; padding: 10px; cursor: pointer;
-      background: #3d8bd4; color: #fff; border: none; border-radius: 6px;
-      font-family: monospace; font-size: 14px; letter-spacing: 2px;
+      background: #6cc4c9; color: #211d1a; border: 2.5px solid #211d1a; border-radius: 10px;
+      font-size: 18px; letter-spacing: 2px;
+      box-shadow: 2px 3px 0 rgba(33, 29, 26, 0.3);
     }
-    #enter:hover { background: #4d9be4; }
+    #enter:hover { background: #83d4d8; }
     .hidden { display: none !important; }
     #memories {
       position: fixed; top: 12px; right: 12px; width: 320px; max-height: 70vh;
-      overflow-y: auto; background: rgba(10, 10, 18, 0.82); color: #cfe3ff;
-      font-family: monospace; font-size: 12px; border: 1px solid #2b2b44;
-      border-radius: 8px; padding: 12px 14px;
+      overflow-y: auto; background: #fbf7ee; color: #211d1a;
+      font-size: 15px; border: 2.5px solid #211d1a;
+      border-radius: 12px; padding: 12px 14px;
+      transform: rotate(0.4deg);
+      box-shadow: 3px 4px 0 rgba(33, 29, 26, 0.25);
     }
-    #memories h2 { font-size: 13px; margin: 0 0 8px; color: #f2a25c; letter-spacing: 1px; }
-    #memories .mem { margin: 0 0 7px; line-height: 1.35; }
-    #memories .mem .t { opacity: 0.45; margin-right: 6px; }
-    #memories .imp3 { color: #ffd9a0; }
+    #memories h2 { font-size: 16px; margin: 0 0 8px; letter-spacing: 1px; border-bottom: 2px solid #211d1a; padding-bottom: 4px; }
+    #memories .mem { margin: 0 0 7px; line-height: 1.3; }
+    #memories .mem .t { opacity: 0.4; margin-right: 6px; font-size: 12px; }
+    #memories .imp3 { background: #ffe9b8; border-radius: 4px; padding: 0 3px; }
   </style>
   <script type="importmap">
     {

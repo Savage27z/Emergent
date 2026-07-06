@@ -1,10 +1,6 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildWorld, heightAt, makeDayNight, DAY_LENGTH, BOUND } from './world.js';
+import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js';
+import { buildWorld, heightAt, makeDayNight, DAY_LENGTH, BOUND, toon } from './world.js';
 
 // --- Scene ---
 const scene = new THREE.Scene();
@@ -17,18 +13,13 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
 document.body.appendChild(renderer.domElement);
 
-// post stack: subtle bloom + shallow depth of field = the miniature-diorama look
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.28, 0.6, 0.92);
-composer.addPass(bloom);
-const bokeh = new BokehPass(scene, camera, { focus: 12, aperture: 0.00035, maxblur: 0.008 });
-composer.addPass(bokeh);
-composer.addPass(new OutputPass());
+// ink outlines around everything — the hand-drawn look is outlines + cel bands
+const effect = new OutlineEffect(renderer, {
+  defaultThickness: 0.007,
+  defaultColor: [0.13, 0.11, 0.1],
+});
 
 // --- Lights ---
 const sun = new THREE.DirectionalLight(0xfff2dd, 2.4);
@@ -51,22 +42,43 @@ buildWorld(scene);
 const updateDayNight = makeDayNight(scene, sun, ambient);
 
 // --- Player meshes ---
+// hand-drawn label: white bubble, wobbly ink border, handwritten text
 function makeNameTag(text) {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
-  canvas.height = 64;
+  canvas.height = 96;
   const ctx = canvas.getContext('2d');
-  ctx.font = 'bold 24px monospace';
+  ctx.font = '600 30px "Segoe Print", "Comic Sans MS", cursive';
   ctx.textAlign = 'center';
-  const w = Math.min(500, ctx.measureText(text).width + 24);
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fillRect(256 - w / 2, 8, w, 48);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(text, 256, 42);
+  const w = Math.min(490, ctx.measureText(text).width + 44);
+  const x0 = 256 - w / 2, y0 = 14, h = 62, r = 14;
+
+  // slightly irregular rounded rect = drawn by hand
+  const wob = (i) => Math.sin(i * 12.9898) * 2.2;
+  ctx.beginPath();
+  ctx.moveTo(x0 + r, y0 + wob(1));
+  ctx.lineTo(x0 + w - r, y0 + wob(2));
+  ctx.quadraticCurveTo(x0 + w + wob(3), y0, x0 + w, y0 + r);
+  ctx.lineTo(x0 + w + wob(4), y0 + h - r);
+  ctx.quadraticCurveTo(x0 + w, y0 + h + wob(5), x0 + w - r, y0 + h);
+  ctx.lineTo(x0 + r, y0 + h + wob(6));
+  ctx.quadraticCurveTo(x0 + wob(7), y0 + h, x0, y0 + h - r);
+  ctx.lineTo(x0 + wob(8), y0 + r);
+  ctx.quadraticCurveTo(x0, y0 + wob(1), x0 + r, y0);
+  ctx.closePath();
+  ctx.fillStyle = '#fbf7ee';
+  ctx.fill();
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = '#211d1a';
+  ctx.stroke();
+
+  ctx.fillStyle = '#211d1a';
+  ctx.fillText(text.toUpperCase(), 256, y0 + 44);
+
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false })
   );
-  sprite.scale.set(4.8, 0.6, 1);
+  sprite.scale.set(4.3, 0.8, 1);
   sprite.position.y = 2.2;
   return sprite;
 }
@@ -75,7 +87,7 @@ function makeHat(kind) {
   if (kind === 'cone') {
     const hat = new THREE.Mesh(
       new THREE.ConeGeometry(0.3, 0.55, 8),
-      new THREE.MeshLambertMaterial({ color: 0xf25c9a })
+      toon(0xf2a0bd)
     );
     hat.position.y = 2.05;
     hat.castShadow = true;
@@ -84,7 +96,7 @@ function makeHat(kind) {
   if (kind === 'crown') {
     const hat = new THREE.Mesh(
       new THREE.CylinderGeometry(0.26, 0.21, 0.26, 6, 1, true),
-      new THREE.MeshLambertMaterial({ color: 0xf2c94c, side: THREE.DoubleSide })
+      toon(0xf2d27c, { side: THREE.DoubleSide })
     );
     hat.position.y = 1.9;
     hat.castShadow = true;
@@ -98,10 +110,10 @@ function makePlayerMesh(color, name, hat = 'none') {
   const base = new THREE.Color(color);
   const skin = base.clone().lerp(new THREE.Color(0xffffff), 0.45);
   const pants = base.clone().lerp(new THREE.Color(0x000000), 0.35);
-  const bodyMat = new THREE.MeshLambertMaterial({ color: base });
-  const skinMat = new THREE.MeshLambertMaterial({ color: skin });
-  const pantsMat = new THREE.MeshLambertMaterial({ color: pants });
-  const eyeMat = new THREE.MeshLambertMaterial({ color: 0x1a1a2e });
+  const bodyMat = toon(base);
+  const skinMat = toon(skin);
+  const pantsMat = toon(pants);
+  const eyeMat = toon(0x1a1a2e);
 
   const group = new THREE.Group();
 
@@ -444,10 +456,7 @@ function tick() {
   scene.userData.waterBob?.(elapsed);
   updateHud(playerCount, timeOfDay);
 
-  // keep the DOF focused on the player
-  bokeh.uniforms.focus.value += (camDist - bokeh.uniforms.focus.value) * 0.1;
-
-  composer.render();
+  effect.render(scene, camera);
   requestAnimationFrame(tick);
 }
 tick();
@@ -456,5 +465,4 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
 });
