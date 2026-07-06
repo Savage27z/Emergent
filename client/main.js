@@ -5,7 +5,7 @@ import { buildWorld, heightAt, makeDayNight, DAY_LENGTH, BOUND, toon } from './w
 // --- Scene ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b5e0);
-scene.fog = new THREE.Fog(0x9ccdf0, 32, 72);
+scene.fog = new THREE.Fog(0x8fd4c9, 55, 170); // far enough to see the mountains
 
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 400);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -26,10 +26,11 @@ const sun = new THREE.DirectionalLight(0xfff2dd, 2.4);
 sun.position.set(20, 30, 10);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -45;
-sun.shadow.camera.right = 45;
-sun.shadow.camera.top = 45;
-sun.shadow.camera.bottom = -45;
+sun.shadow.camera.left = -55;
+sun.shadow.camera.right = 55;
+sun.shadow.camera.top = 55;
+sun.shadow.camera.bottom = -55;
+sun.shadow.camera.far = 250;
 sun.shadow.bias = -0.0004;
 sun.shadow.radius = 6; // soft edges
 scene.add(sun);
@@ -245,6 +246,9 @@ function connect(profile) {
 
   socket.on('welcome', ({ self: me }) => {
     self = makePlayerMesh(me.color, me.name + ' (you)', me.hat);
+    // dev: ?pos=x,z spawns you at a specific spot
+    const devPos = new URLSearchParams(location.search).get('pos')?.split(',').map(Number);
+    if (devPos?.length === 2 && devPos.every(Number.isFinite)) [me.x, me.z] = devPos;
     self.position.set(me.x, heightAt(me.x, me.z), me.z);
     self.rotation.y = me.ry;
     scene.add(self);
@@ -252,7 +256,7 @@ function connect(profile) {
   });
 
   socket.on('snapshot', ({ time, entities }) => {
-    elapsed = time + DAY_LENGTH * 0.2; // server owns world time; offset starts us mid-morning
+    if (forcedT === null) elapsed = time + DAY_LENGTH * 0.2; // server owns world time
     const seen = new Set();
     playerCount = 0;
     for (const p of entities) {
@@ -374,6 +378,8 @@ let selfWalk = 0; // smoothed 0..1 walk blend
 let selfStride = 0; // accumulated stride time
 const clock = new THREE.Clock();
 let elapsed = DAY_LENGTH * 0.2; // overwritten by server snapshots; offset = mid-morning start
+// dev: freeze time of day with ?t=0..1 (0 dawn, 0.25 noon, 0.5 dusk, 0.75 midnight)
+const forcedT = new URLSearchParams(location.search).get('t');
 
 function tick() {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -424,7 +430,19 @@ function tick() {
       Math.cos(camYaw) * Math.cos(camPitch)
     ).multiplyScalar(camDist);
     const camTarget = self.position.clone().add(camOffset);
-    // don't let the camera burrow into hills
+    // don't let the camera burrow into hills — check along the whole boom,
+    // shortening it if terrain (e.g. a mountain face) is in the way
+    for (let t = 0.35; t <= 1; t += 0.15) {
+      const px = self.position.x + camOffset.x * t;
+      const pz = self.position.z + camOffset.z * t;
+      const py = self.position.y + 1.2 + (camTarget.y - self.position.y - 1.2) * t;
+      const ground = heightAt(px, pz);
+      if (py < ground + 0.3) {
+        camTarget.copy(self.position).addScaledVector(camOffset, Math.max(0.3, t - 0.1));
+        camTarget.y += 0.8; // peek over the obstruction
+        break;
+      }
+    }
     camTarget.y = Math.max(camTarget.y, heightAt(camTarget.x, camTarget.z) + 1.2);
     camera.position.lerp(camTarget, 0.12);
     camera.lookAt(self.position.x, self.position.y + 1.2, self.position.z);
@@ -450,10 +468,13 @@ function tick() {
     mesh.userData.animate(o.walk, o.stride);
   }
 
-  const timeOfDay = updateDayNight(elapsed, self?.position);
+  const timeOfDay = updateDayNight(forcedT !== null ? DAY_LENGTH * parseFloat(forcedT) : elapsed, self?.position);
   scene.userData.flicker?.(elapsed);
   scene.userData.driftClouds?.(dt);
   scene.userData.waterBob?.(elapsed);
+  scene.userData.updateBirds?.(dt, elapsed);
+  scene.userData.updateSnow?.(dt, elapsed, self?.position);
+  scene.userData.updateCritters?.(dt, elapsed);
   updateHud(playerCount, timeOfDay);
 
   effect.render(scene, camera);
