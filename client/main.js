@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { buildWorld, heightAt, makeDayNight, DAY_LENGTH } from './world.js';
+import { buildWorld, heightAt, makeDayNight, DAY_LENGTH, BOUND } from './world.js';
 
 // --- Scene ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b5e0);
-scene.fog = new THREE.Fog(0x87b5e0, 40, 90);
+scene.fog = new THREE.Fog(0x9ccdf0, 32, 72);
 
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 200);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -363,8 +363,8 @@ function tick() {
     selfWalk += ((moving ? 1 : 0) - selfWalk) * Math.min(1, dt * 12);
     selfStride += dt * (moving ? (sprinting ? 1.7 : 1) : 0);
     self.userData.animate(selfWalk, selfStride);
-    self.position.x = THREE.MathUtils.clamp(self.position.x, -58, 58);
-    self.position.z = THREE.MathUtils.clamp(self.position.z, -58, 58);
+    self.position.x = THREE.MathUtils.clamp(self.position.x, -BOUND, BOUND);
+    self.position.z = THREE.MathUtils.clamp(self.position.z, -BOUND, BOUND);
 
     // gravity & jumping over the terrain
     const groundY = heightAt(self.position.x, self.position.z);

@@ -3,8 +3,11 @@
 // knowledge (NPC pathing), lift the noise/height functions into a shared module.
 import * as THREE from 'three';
 
+// Messenger (messenger.abeto.co) is the vibe: a small dense cozy world beats
+// a big empty one. Keep the map tight and pack the detail near the village.
 export const WORLD_SEED = 20260706;
-export const WORLD_SIZE = 120; // world spans [-60, 60]
+export const WORLD_SIZE = 90; // world spans [-45, 45]
+export const BOUND = WORLD_SIZE / 2 - 3; // walkable limit
 export const WATER_Y = -0.55;
 
 // --- Seeded noise (value noise + fbm) ---
@@ -51,10 +54,13 @@ function fbm(x, z) {
 
 export function heightAt(x, z) {
   let h = (fbm(x, z) - 0.44) * 6; // broad rolling hills, some valleys dip below water
-  // flatten toward spawn so the village center is walkable
   const r = Math.hypot(x, z);
+  // flatten toward spawn so the village center is walkable
   const flat = Math.max(0, 1 - r / 20);
   h = h * (1 - smooth(flat)) + 0.55 * smooth(flat);
+  // the world is an island: sink toward the sea at the edges
+  const edge = smooth(Math.min(1, Math.max(0, (r - 26) / 16)));
+  h = h * (1 - edge) + -2.6 * edge;
   return h;
 }
 
@@ -69,10 +75,10 @@ export function buildWorld(scene) {
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
-  const sand = new THREE.Color(0xc8b87a);
-  const grass = new THREE.Color(0x6aa84f);
-  const dark = new THREE.Color(0x4c7d3a);
-  const rock = new THREE.Color(0x8d8d84);
+  const sand = new THREE.Color(0xd9c48b);
+  const grass = new THREE.Color(0x7cbb5e);
+  const dark = new THREE.Color(0x578a45);
+  const rock = new THREE.Color(0x9a968c);
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const h = heightAt(pos.getX(i), pos.getZ(i));
@@ -88,10 +94,10 @@ export function buildWorld(scene) {
   terrain.receiveShadow = true;
   scene.add(terrain);
 
-  // Water (gentle level bob makes shorelines shimmer)
+  // Water (an ocean: reaches past the fog so the island floats in sea, not void)
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE),
-    new THREE.MeshLambertMaterial({ color: 0x3a7ca5, transparent: true, opacity: 0.82 })
+    new THREE.PlaneGeometry(600, 600),
+    new THREE.MeshLambertMaterial({ color: 0x4292c4, transparent: true, opacity: 0.85 })
   );
   water.rotation.x = -Math.PI / 2;
   water.position.y = WATER_Y;
@@ -107,7 +113,7 @@ export function buildWorld(scene) {
   const tuftMat = new THREE.MeshLambertMaterial({ color: 0x55964a });
 
   for (let i = 0; i < 55; i++) {
-    const x = rng(-56, 56), z = rng(-56, 56);
+    const x = rng(-BOUND, BOUND), z = rng(-BOUND, BOUND);
     const h = heightAt(x, z);
     if (h < WATER_Y + 0.4 || Math.hypot(x, z) < 7) continue;
     const th = rng(1.2, 3.2);
@@ -123,7 +129,7 @@ export function buildWorld(scene) {
   }
 
   for (let i = 0; i < 25; i++) {
-    const x = rng(-56, 56), z = rng(-56, 56);
+    const x = rng(-BOUND, BOUND), z = rng(-BOUND, BOUND);
     const h = heightAt(x, z);
     if (h < WATER_Y + 0.2) continue;
     const s = rng(0.25, 0.9);
@@ -135,7 +141,7 @@ export function buildWorld(scene) {
   }
 
   for (let i = 0; i < 120; i++) {
-    const x = rng(-56, 56), z = rng(-56, 56);
+    const x = rng(-BOUND, BOUND), z = rng(-BOUND, BOUND);
     const h = heightAt(x, z);
     if (h < WATER_Y + 0.3) continue;
     const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.12, rng(0.25, 0.5), 4), tuftMat);
@@ -219,6 +225,113 @@ function buildVillage(scene) {
   fireLight.position.set(CAMPFIRE_POS.x, CAMPFIRE_POS.y + 1, CAMPFIRE_POS.z);
   scene.add(fireLight);
 
+  // --- cozy layer: paths, fences, lanterns, flowers, seats, dock ---
+  const pathMat = new THREE.MeshLambertMaterial({ color: 0xc9a878 });
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x8a6844 });
+
+  // dirt path: patches from the campfire out to each house and toward the lake
+  const pathTo = (tx, tz) => {
+    const steps = Math.ceil(Math.hypot(tx, tz) / 1.1);
+    for (let i = 1; i <= steps; i++) {
+      const x = (tx * i) / steps + (Math.sin(i * 3.7) * 0.25);
+      const z = (tz * i) / steps + (Math.cos(i * 2.9) * 0.25);
+      const patch = new THREE.Mesh(new THREE.CircleGeometry(0.55 + Math.sin(i) * 0.1, 7), pathMat);
+      patch.rotation.x = -Math.PI / 2;
+      patch.position.set(x, heightAt(x, z) + 0.02, z);
+      scene.add(patch);
+    }
+  };
+  pathTo(-6, -4);
+  pathTo(6, -5);
+  pathTo(0, -8);
+  pathTo(-5, 5);
+  pathTo(-14, 2); // toward the lake
+
+  // low fences along the village edge (broken rings feel hand-placed)
+  for (let i = 0; i < 26; i++) {
+    const a = (i / 26) * Math.PI * 2;
+    if (Math.sin(i * 2.3) > 0.55) continue; // gaps
+    const r = 11.5;
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const h = heightAt(x, z);
+    if (h < WATER_Y + 0.3) continue;
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.7, 0.12), woodMat);
+    post.position.set(x, h + 0.35, z);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 2.4), woodMat);
+    rail.position.set(x, h + 0.55, z);
+    rail.rotation.y = -a;
+    post.castShadow = true;
+    scene.add(post, rail);
+  }
+
+  // lanterns along the paths — small warm lights that carry the night
+  const lanternSpots = [
+    [-3, -2], [3, -2.5], [0, -4.5], [-2.5, 2.5], [-8, 1], [-12, 2],
+  ];
+  scene.userData.lanterns = [];
+  for (const [x, z] of lanternSpots) {
+    const h = heightAt(x, z);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.3, 5), woodMat);
+    post.position.set(x, h + 0.65, z);
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.13, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffd27a })
+    );
+    bulb.position.set(x, h + 1.35, z);
+    post.castShadow = true;
+    scene.add(post, bulb);
+    // three real point lights carry the glow; the rest just have bright bulbs
+    if (scene.userData.lanterns.length < 3) {
+      const glow = new THREE.PointLight(0xffc267, 0, 7, 2);
+      glow.position.copy(bulb.position);
+      scene.add(glow);
+      scene.userData.lanterns.push(glow);
+    }
+  }
+
+  // flowers sprinkled inside the village ring
+  const flowerColors = [0xf25c9a, 0xf2cc5c, 0xffffff, 0xb56dc4];
+  for (let i = 0; i < 40; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 2 + Math.random() * 9;
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const h = heightAt(x, z);
+    if (h < WATER_Y + 0.3) continue;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.25, 4),
+      new THREE.MeshLambertMaterial({ color: 0x55964a }));
+    stem.position.set(x, h + 0.12, z);
+    const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6),
+      new THREE.MeshLambertMaterial({ color: flowerColors[i % flowerColors.length] }));
+    bloom.position.set(x, h + 0.27, z);
+    scene.add(stem, bloom);
+  }
+
+  // log seats around the campfire
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.5;
+    const x = Math.cos(a) * 1.9, z = Math.sin(a) * 1.9;
+    const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.2, 7), woodMat);
+    seat.rotation.z = Math.PI / 2;
+    seat.rotation.y = -a;
+    seat.position.set(x, heightAt(x, z) + 0.22, z);
+    seat.castShadow = true;
+    scene.add(seat);
+  }
+
+  // little dock reaching into the lake (Ember's fishing spot)
+  const dock = new THREE.Group();
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.1, 3.4), woodMat);
+  deck.position.y = WATER_Y + 0.35;
+  dock.add(deck);
+  for (const [px, pz] of [[-0.45, 1.5], [0.45, 1.5], [-0.45, -1.5], [0.45, -1.5]]) {
+    const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.2, 5), woodMat);
+    pile.position.set(px, WATER_Y - 0.2, pz);
+    dock.add(pile);
+  }
+  dock.position.set(-16, 0, 2);
+  dock.rotation.y = 0.8;
+  scene.add(dock);
+
   // flicker (exported via userData so main.js can call it in the loop)
   scene.userData.flicker = (elapsed) => {
     fireLight.intensity = 10 + Math.sin(elapsed * 11) * 1.6 + Math.sin(elapsed * 23) * 1.1;
@@ -253,9 +366,9 @@ function buildClouds(scene, rand) {
 // --- Day/night cycle ---
 export const DAY_LENGTH = 180; // seconds per full day, tuned for demos
 
-const DAY_SKY = new THREE.Color(0x87b5e0);
-const DUSK_SKY = new THREE.Color(0xd98e6a);
-const NIGHT_SKY = new THREE.Color(0x0b1026);
+const DAY_SKY = new THREE.Color(0x9ccdf0);
+const DUSK_SKY = new THREE.Color(0xe89a72);
+const NIGHT_SKY = new THREE.Color(0x101430);
 
 export function makeDayNight(scene, sun, ambient) {
   // stars: points on a dome, visible only at night
@@ -314,6 +427,9 @@ export function makeDayNight(scene, sun, ambient) {
     const nightness = Math.max(0, 1 - dayness * 3);
     starMat.opacity = nightness;
     if (playerPos) stars.position.set(playerPos.x, 0, playerPos.z);
+
+    // village lanterns come on at dusk
+    for (const glow of scene.userData.lanterns ?? []) glow.intensity = nightness * 4 + duskness * 2;
 
     moon.position.set(-Math.cos(angle) * 80, -Math.sin(angle) * 80, -30);
     if (playerPos) moon.position.add(new THREE.Vector3(playerPos.x, 0, playerPos.z));
