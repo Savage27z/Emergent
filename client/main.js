@@ -49,7 +49,29 @@ function makeNameTag(text) {
   return sprite;
 }
 
-function makePlayerMesh(color, name) {
+function makeHat(kind) {
+  if (kind === 'cone') {
+    const hat = new THREE.Mesh(
+      new THREE.ConeGeometry(0.32, 0.6, 8),
+      new THREE.MeshLambertMaterial({ color: 0xf25c9a })
+    );
+    hat.position.y = 1.85;
+    hat.castShadow = true;
+    return hat;
+  }
+  if (kind === 'crown') {
+    const hat = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.3, 0.24, 0.28, 6, 1, true),
+      new THREE.MeshLambertMaterial({ color: 0xf2c94c, side: THREE.DoubleSide })
+    );
+    hat.position.y = 1.72;
+    hat.castShadow = true;
+    return hat;
+  }
+  return null;
+}
+
+function makePlayerMesh(color, name, hat = 'none') {
   const group = new THREE.Group();
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(0.8, 1.6, 0.8),
@@ -58,16 +80,76 @@ function makePlayerMesh(color, name) {
   body.position.y = 0.8;
   body.castShadow = true;
   group.add(body, makeNameTag(name));
+  const hatMesh = makeHat(hat);
+  if (hatMesh) group.add(hatMesh);
   return group;
 }
 
-// --- Networking ---
+// --- Identity & profile ---
 let pid = localStorage.getItem('emergent-pid');
 if (!pid) {
   pid = crypto.randomUUID();
   localStorage.setItem('emergent-pid', pid);
 }
-const socket = io({ auth: { pid } });
+
+const PALETTE = [0xe07a5f, 0x3d8bd4, 0xf2cc8f, 0x81b29a, 0xb56dc4, 0xe8628c];
+const HATS = ['none', 'cone', 'crown'];
+
+function loadProfile() {
+  try { return JSON.parse(localStorage.getItem('emergent-profile')); } catch { return null; }
+}
+
+function showJoinOverlay(existing) {
+  const overlay = document.getElementById('join');
+  overlay.classList.remove('hidden');
+  const nameInput = document.getElementById('name-input');
+  nameInput.value = existing?.name ?? '';
+
+  let color = existing?.color ?? PALETTE[Math.floor(Math.random() * PALETTE.length)];
+  let hat = existing?.hat ?? 'none';
+
+  const swatches = document.getElementById('swatches');
+  swatches.innerHTML = '';
+  for (const c of PALETTE) {
+    const el = document.createElement('div');
+    el.className = 'swatch' + (c === color ? ' sel' : '');
+    el.style.background = '#' + c.toString(16).padStart(6, '0');
+    el.onclick = () => {
+      color = c;
+      swatches.querySelectorAll('.swatch').forEach((s) => s.classList.remove('sel'));
+      el.classList.add('sel');
+    };
+    swatches.appendChild(el);
+  }
+
+  const hats = document.getElementById('hats');
+  hats.innerHTML = '';
+  for (const h of HATS) {
+    const el = document.createElement('button');
+    el.className = 'hat' + (h === hat ? ' sel' : '');
+    el.textContent = h;
+    el.onclick = () => {
+      hat = h;
+      hats.querySelectorAll('.hat').forEach((b) => b.classList.remove('sel'));
+      el.classList.add('sel');
+    };
+    hats.appendChild(el);
+  }
+
+  document.getElementById('enter').onclick = () => {
+    const profile = { name: nameInput.value.trim().slice(0, 16), color, hat };
+    localStorage.setItem('emergent-profile', JSON.stringify(profile));
+    overlay.classList.add('hidden');
+    if (socket) {
+      location.reload(); // re-customizing: reconnect with the new profile
+    } else {
+      connect(profile);
+    }
+  };
+}
+
+// --- Networking ---
+let socket = null;
 let self = null; // our player mesh (locally simulated)
 const others = new Map(); // id -> { mesh, target: {x, z, ry} }
 const hud = document.getElementById('hud');
@@ -75,49 +157,59 @@ const hud = document.getElementById('hud');
 function updateHud(count, timeOfDay) {
   const icons = ['🌅', '☀️', '🌇', '🌙'];
   const icon = icons[Math.floor((timeOfDay ?? 0.25) * 4) % 4];
-  hud.innerHTML = `EMERGENT — day 1<br />WASD to move · ${count} online · ${icon}`;
+  hud.innerHTML = `EMERGENT — day 1<br />WASD move · C customize · ${count} online · ${icon}`;
 }
 
-socket.on('welcome', ({ self: me }) => {
-  self = makePlayerMesh(me.color, me.name + ' (you)');
-  self.position.set(me.x, heightAt(me.x, me.z), me.z);
-  self.rotation.y = me.ry;
-  scene.add(self);
-  camera.position.copy(self.position).add(new THREE.Vector3(0, 7, 10));
-});
-
 let playerCount = 1;
-socket.on('snapshot', ({ time, entities }) => {
-  elapsed = time + DAY_LENGTH * 0.2; // server owns world time; offset starts us mid-morning
-  const seen = new Set();
-  playerCount = 0;
-  for (const p of entities) {
-    if (!p.id.startsWith('npc-')) playerCount++;
-    if (p.id === socket.id) continue; // we simulate ourselves (welcome may not have landed yet)
-    seen.add(p.id);
-    const o = others.get(p.id) ?? addOther(p);
-    o.target = { x: p.x, z: p.z, ry: p.ry };
-  }
-  // the snapshot is authoritative: drop anyone the server no longer knows
-  for (const [id, o] of others) {
-    if (!seen.has(id)) {
+
+function connect(profile) {
+  socket = io({ auth: { pid, ...profile } });
+
+  socket.on('welcome', ({ self: me }) => {
+    self = makePlayerMesh(me.color, me.name + ' (you)', me.hat);
+    self.position.set(me.x, heightAt(me.x, me.z), me.z);
+    self.rotation.y = me.ry;
+    scene.add(self);
+    camera.position.copy(self.position).add(new THREE.Vector3(0, 7, 10));
+  });
+
+  socket.on('snapshot', ({ time, entities }) => {
+    elapsed = time + DAY_LENGTH * 0.2; // server owns world time; offset starts us mid-morning
+    const seen = new Set();
+    playerCount = 0;
+    for (const p of entities) {
+      if (!p.id.startsWith('npc-')) playerCount++;
+      if (p.id === socket.id) continue; // we simulate ourselves (welcome may not have landed yet)
+      seen.add(p.id);
+      const o = others.get(p.id) ?? addOther(p);
+      o.target = { x: p.x, z: p.z, ry: p.ry };
+    }
+    // the snapshot is authoritative: drop anyone the server no longer knows
+    for (const [id, o] of others) {
+      if (!seen.has(id)) {
+        scene.remove(o.mesh);
+        others.delete(id);
+      }
+    }
+  });
+
+  socket.on('player-left', (id) => {
+    const o = others.get(id);
+    if (o) {
       scene.remove(o.mesh);
       others.delete(id);
     }
-  }
-});
+  });
 
-socket.on('player-left', (id) => {
-  const o = others.get(id);
-  if (o) {
-    scene.remove(o.mesh);
-    others.delete(id);
-  }
-});
+  // send our position at 20Hz
+  setInterval(() => {
+    if (self) socket.emit('move', { x: self.position.x, z: self.position.z, ry: self.rotation.y });
+  }, 50);
+}
 
 function addOther(p) {
   if (others.has(p.id)) return others.get(p.id);
-  const mesh = makePlayerMesh(p.color, p.name);
+  const mesh = makePlayerMesh(p.color, p.name, p.hat);
   mesh.position.set(p.x, heightAt(p.x, p.z), p.z);
   scene.add(mesh);
   const entry = { mesh, target: { x: p.x, z: p.z, ry: p.ry } };
@@ -125,14 +217,21 @@ function addOther(p) {
   return entry;
 }
 
-// send our position at 20Hz
-setInterval(() => {
-  if (self) socket.emit('move', { x: self.position.x, z: self.position.z, ry: self.rotation.y });
-}, 50);
+// boot: returning players connect straight away, newcomers customize first
+const savedProfile = loadProfile();
+if (savedProfile) connect(savedProfile);
+else showJoinOverlay(null);
 
 // --- Input ---
 const keys = {};
-addEventListener('keydown', (e) => (keys[e.code] = true));
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  keys[e.code] = true;
+  // C re-opens the customization screen
+  if (e.code === 'KeyC' && document.getElementById('join').classList.contains('hidden')) {
+    showJoinOverlay(loadProfile());
+  }
+});
 addEventListener('keyup', (e) => (keys[e.code] = false));
 
 // --- Game loop (local movement is predicted client-side; server relays) ---

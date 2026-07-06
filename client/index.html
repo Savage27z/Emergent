@@ -12,6 +12,39 @@
       user-select: none; pointer-events: none;
       text-shadow: 0 1px 2px rgba(0,0,0,0.8);
     }
+    #join {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(10, 10, 18, 0.85); font-family: monospace; color: #cfe3ff;
+    }
+    #join .card {
+      background: #141422; border: 1px solid #2b2b44; border-radius: 10px;
+      padding: 28px 32px; width: 300px; text-align: center;
+    }
+    #join h1 { font-size: 20px; letter-spacing: 4px; margin: 0 0 18px; }
+    #join label { display: block; text-align: left; font-size: 11px; opacity: 0.7; margin: 14px 0 6px; }
+    #join input {
+      width: 100%; box-sizing: border-box; background: #0a0a12; color: #cfe3ff;
+      border: 1px solid #2b2b44; border-radius: 6px; padding: 8px; font-family: monospace;
+    }
+    .swatches { display: flex; gap: 8px; justify-content: center; }
+    .swatch {
+      width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
+      border: 2px solid transparent;
+    }
+    .swatch.sel { border-color: #ffffff; }
+    .hats { display: flex; gap: 8px; justify-content: center; }
+    .hat {
+      flex: 1; padding: 6px 0; background: #0a0a12; border: 2px solid #2b2b44;
+      border-radius: 6px; cursor: pointer; color: #cfe3ff; font-family: monospace; font-size: 12px;
+    }
+    .hat.sel { border-color: #ffffff; }
+    #enter {
+      margin-top: 22px; width: 100%; padding: 10px; cursor: pointer;
+      background: #3d8bd4; color: #fff; border: none; border-radius: 6px;
+      font-family: monospace; font-size: 14px; letter-spacing: 2px;
+    }
+    #enter:hover { background: #4d9be4; }
+    .hidden { display: none !important; }
   </style>
   <script type="importmap">
     {
@@ -23,6 +56,18 @@
 </head>
 <body>
   <div id="hud">EMERGENT — day 1<br />WASD to move</div>
+  <div id="join" class="hidden">
+    <div class="card">
+      <h1>EMERGENT</h1>
+      <label>NAME</label>
+      <input id="name-input" maxlength="16" placeholder="wanderer" />
+      <label>COLOR</label>
+      <div class="swatches" id="swatches"></div>
+      <label>HAT</label>
+      <div class="hats" id="hats"></div>
+      <button id="enter">ENTER WORLD</button>
+    </div>
+  </div>
   <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="/main.js"></script>
 </body>

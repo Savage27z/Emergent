@@ -19,11 +19,15 @@ db.exec(`
     last_seen INTEGER NOT NULL
   )
 `);
+try {
+  db.exec("ALTER TABLE players ADD COLUMN hat TEXT NOT NULL DEFAULT 'none'");
+} catch { /* column already exists */ }
 const getPlayer = db.prepare('SELECT * FROM players WHERE id = ?');
 const upsertPlayer = db.prepare(`
-  INSERT INTO players (id, name, color, x, z, ry, last_seen)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
-  ON CONFLICT(id) DO UPDATE SET x=excluded.x, z=excluded.z, ry=excluded.ry, last_seen=excluded.last_seen
+  INSERT INTO players (id, name, color, x, z, ry, hat, last_seen)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color, hat=excluded.hat,
+    x=excluded.x, z=excluded.z, ry=excluded.ry, last_seen=excluded.last_seen
 `);
 const countPlayers = db.prepare('SELECT COUNT(*) AS n FROM players');
 
@@ -42,14 +46,27 @@ const PALETTE = [0xe07a5f, 0x3d8bd4, 0xf2cc8f, 0x81b29a, 0xb56dc4, 0xe8628c];
 
 io.on('connection', (socket) => {
   // pid is the client's persistent identity (localStorage UUID); socket.id is per-connection
-  const pid = typeof socket.handshake.auth?.pid === 'string' ? socket.handshake.auth.pid.slice(0, 64) : socket.id;
+  const auth = socket.handshake.auth ?? {};
+  const pid = typeof auth.pid === 'string' ? auth.pid.slice(0, 64) : socket.id;
   const saved = getPlayer.get(pid);
   const n = countPlayers.get().n;
-  const player = saved
-    ? { id: socket.id, pid, x: saved.x, z: saved.z, ry: saved.ry, color: saved.color, name: saved.name }
-    : { id: socket.id, pid, x: 0, z: 0, ry: 0, color: PALETTE[n % PALETTE.length], name: `wanderer-${n + 1}` };
+
+  // profile from the client wins (that's how you re-customize), then saved, then defaults
+  const name =
+    (typeof auth.name === 'string' && auth.name.trim().slice(0, 16)) ||
+    saved?.name ||
+    `wanderer-${n + 1}`;
+  const color = Number.isInteger(auth.color) && auth.color >= 0 && auth.color <= 0xffffff
+    ? auth.color
+    : saved?.color ?? PALETTE[n % PALETTE.length];
+  const hat = ['none', 'cone', 'crown'].includes(auth.hat) ? auth.hat : saved?.hat ?? 'none';
+
+  const player = {
+    id: socket.id, pid, name, color, hat,
+    x: saved?.x ?? 0, z: saved?.z ?? 0, ry: saved?.ry ?? 0,
+  };
   players.set(socket.id, player);
-  upsertPlayer.run(pid, player.name, player.color, player.x, player.z, player.ry, Date.now());
+  upsertPlayer.run(pid, player.name, player.color, player.x, player.z, player.ry, player.hat, Date.now());
   console.log(`${player.name} connected (${players.size} online)`);
 
   // tell the newcomer who they are and who's already here (pid stays server-side)
@@ -66,7 +83,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const p = players.get(socket.id);
-    if (p) upsertPlayer.run(p.pid, p.name, p.color, p.x, p.z, p.ry, Date.now());
+    if (p) upsertPlayer.run(p.pid, p.name, p.color, p.x, p.z, p.ry, p.hat, Date.now());
     players.delete(socket.id);
     io.emit('player-left', socket.id);
     console.log(`${player.name} disconnected (${players.size} online)`);
@@ -76,11 +93,11 @@ io.on('connection', (socket) => {
 // flush positions to SQLite every 5s so a crash loses at most 5s of movement
 setInterval(() => {
   const now = Date.now();
-  for (const p of players.values()) upsertPlayer.run(p.pid, p.name, p.color, p.x, p.z, p.ry, now);
+  for (const p of players.values()) upsertPlayer.run(p.pid, p.name, p.color, p.x, p.z, p.ry, p.hat, now);
 }, 5000);
 
-function publicView({ id, name, color, x, z, ry }) {
-  return { id, name, color, x, z, ry };
+function publicView({ id, name, color, x, z, ry, hat }) {
+  return { id, name, color, x, z, ry, hat: hat ?? 'none' };
 }
 
 // --- NPCs (server-simulated) ---
