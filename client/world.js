@@ -371,6 +371,31 @@ const DUSK_SKY = new THREE.Color(0xe89a72);
 const NIGHT_SKY = new THREE.Color(0x101430);
 
 export function makeDayNight(scene, sun, ambient) {
+  // gradient sky dome: horizon lightens toward the ground like real atmosphere
+  const skyUniforms = {
+    topColor: { value: new THREE.Color(0x9ccdf0) },
+    horizonColor: { value: new THREE.Color(0xe8f2f8) },
+  };
+  const skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(300, 24, 12),
+    new THREE.ShaderMaterial({
+      uniforms: skyUniforms,
+      side: THREE.BackSide,
+      fog: false,
+      depthWrite: false,
+      vertexShader: `
+        varying vec3 vPos;
+        void main() { vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `
+        uniform vec3 topColor; uniform vec3 horizonColor; varying vec3 vPos;
+        void main() {
+          float h = clamp(normalize(vPos).y, 0.0, 1.0);
+          gl_FragColor = vec4(mix(horizonColor, topColor, pow(h, 0.55)), 1.0);
+        }`,
+    })
+  );
+  skyDome.renderOrder = -1;
+  scene.add(skyDome);
   // stars: points on a dome, visible only at night
   const starGeo = new THREE.BufferGeometry();
   const starPos = [];
@@ -423,6 +448,10 @@ export function makeDayNight(scene, sun, ambient) {
     sky.copy(NIGHT_SKY).lerp(DAY_SKY, dayness).lerp(DUSK_SKY, duskness * 0.7);
     scene.background.copy(sky);
     scene.fog.color.copy(sky);
+    // dome follows the same palette; horizon stays a touch brighter
+    skyUniforms.topColor.value.copy(sky);
+    skyUniforms.horizonColor.value.copy(sky).lerp(new THREE.Color(0xfff4e2), 0.35 + duskness * 0.3);
+    if (playerPos) skyDome.position.set(playerPos.x, 0, playerPos.z);
 
     const nightness = Math.max(0, 1 - dayness * 3);
     starMat.opacity = nightness;

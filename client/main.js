@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildWorld, heightAt, makeDayNight, DAY_LENGTH, BOUND } from './world.js';
 
 // --- Scene ---
@@ -6,23 +11,39 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b5e0);
 scene.fog = new THREE.Fog(0x9ccdf0, 32, 72);
 
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 200);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 400);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 document.body.appendChild(renderer.domElement);
 
+// post stack: subtle bloom + shallow depth of field = the miniature-diorama look
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.28, 0.6, 0.92);
+composer.addPass(bloom);
+const bokeh = new BokehPass(scene, camera, { focus: 12, aperture: 0.00035, maxblur: 0.008 });
+composer.addPass(bokeh);
+composer.addPass(new OutputPass());
+
 // --- Lights ---
-const sun = new THREE.DirectionalLight(0xfff4e0, 2.2);
+const sun = new THREE.DirectionalLight(0xfff2dd, 2.4);
 sun.position.set(20, 30, 10);
 sun.castShadow = true;
-sun.shadow.camera.left = -40;
-sun.shadow.camera.right = 40;
-sun.shadow.camera.top = 40;
-sun.shadow.camera.bottom = -40;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -45;
+sun.shadow.camera.right = 45;
+sun.shadow.camera.top = 45;
+sun.shadow.camera.bottom = -45;
+sun.shadow.bias = -0.0004;
+sun.shadow.radius = 6; // soft edges
 scene.add(sun);
-const ambient = new THREE.AmbientLight(0xbfd4ff, 0.6);
+// sky-and-ground bounce: blue-ish from above, grass-tinted from below
+const ambient = new THREE.HemisphereLight(0xbfd8ff, 0x7a9a5a, 0.65);
 scene.add(ambient);
 
 // --- World ---
@@ -423,7 +444,10 @@ function tick() {
   scene.userData.waterBob?.(elapsed);
   updateHud(playerCount, timeOfDay);
 
-  renderer.render(scene, camera);
+  // keep the DOF focused on the player
+  bokeh.uniforms.focus.value += (camDist - bokeh.uniforms.focus.value) * 0.1;
+
+  composer.render();
   requestAnimationFrame(tick);
 }
 tick();
@@ -432,4 +456,5 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
 });
