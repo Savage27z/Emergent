@@ -83,9 +83,37 @@ function publicView({ id, name, color, x, z, ry }) {
   return { id, name, color, x, z, ry };
 }
 
-// broadcast a world snapshot at 20Hz
+// --- NPCs (server-simulated) ---
+// No brain yet: random wander. This is the slot where the agent module's
+// planner will plug in — it will emit actions instead of random headings.
+const npcs = [
+  { id: 'npc-ember', name: 'Ember', color: 0xd94f30, x: 8, z: 8, ry: 0, heading: 0, idle: 0 },
+];
+
+const NPC_SPEED = 2.5;
 setInterval(() => {
-  if (players.size > 0) io.emit('snapshot', [...players.values()].map(publicView));
+  const dt = 0.1;
+  for (const npc of npcs) {
+    if (npc.idle > 0) {
+      npc.idle -= dt;
+      continue;
+    }
+    // occasionally stop and look around, or pick a new heading
+    if (Math.random() < 0.02) npc.idle = 1 + Math.random() * 3;
+    if (Math.random() < 0.03) npc.heading = Math.random() * Math.PI * 2;
+    npc.x += Math.sin(npc.heading) * NPC_SPEED * dt;
+    npc.z += Math.cos(npc.heading) * NPC_SPEED * dt;
+    // stay near the village center
+    if (Math.hypot(npc.x, npc.z) > 25) npc.heading = Math.atan2(-npc.x, -npc.z);
+    npc.ry = npc.heading;
+  }
+}, 100);
+
+// broadcast a world snapshot at 20Hz (players + NPCs share the pipeline)
+setInterval(() => {
+  if (players.size > 0) {
+    io.emit('snapshot', [...players.values(), ...npcs].map(publicView));
+  }
 }, 50);
 
 const PORT = process.env.PORT || 3000;

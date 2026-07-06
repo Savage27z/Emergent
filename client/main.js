@@ -119,26 +119,34 @@ socket.on('welcome', ({ self: me, players }) => {
   updateHud(players.length);
 });
 
-socket.on('player-joined', (p) => {
-  addOther(p);
-  updateHud(others.size + 1);
-});
-
+// join/leave are handled by snapshot reconciliation (20Hz), which also owns the HUD count
 socket.on('player-left', (id) => {
   const o = others.get(id);
   if (o) {
     scene.remove(o.mesh);
     others.delete(id);
   }
-  updateHud(others.size + 1);
 });
 
-socket.on('snapshot', (players) => {
-  for (const p of players) {
-    if (self && p.id === socket.id) continue; // we simulate ourselves
+socket.on('snapshot', (entities) => {
+  const seen = new Set();
+  let playerCount = 0;
+  for (const p of entities) {
+    if (!p.id.startsWith('npc-')) playerCount++;
+    if (p.id === socket.id) continue; // we simulate ourselves (welcome may not have landed yet)
+    seen.add(p.id);
     const o = others.get(p.id) ?? addOther(p);
     o.target = { x: p.x, z: p.z, ry: p.ry };
   }
+  // the snapshot is authoritative: drop anyone the server no longer knows
+  // (covers the race where a stale snapshot re-adds a player after player-left)
+  for (const [id, o] of others) {
+    if (!seen.has(id)) {
+      scene.remove(o.mesh);
+      others.delete(id);
+    }
+  }
+  updateHud(playerCount);
 });
 
 function addOther(p) {
