@@ -157,7 +157,7 @@ const hud = document.getElementById('hud');
 function updateHud(count, timeOfDay) {
   const icons = ['🌅', '☀️', '🌇', '🌙'];
   const icon = icons[Math.floor((timeOfDay ?? 0.25) * 4) % 4];
-  hud.innerHTML = `EMERGENT — day 1<br />WASD move · C customize · ${count} online · ${icon}`;
+  hud.innerHTML = `EMERGENT — day 1<br />WASD move · Space jump · Shift sprint · drag to look · C customize<br />${count} online · ${icon}`;
 }
 
 let playerCount = 1;
@@ -234,8 +234,32 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => (keys[e.code] = false));
 
+// --- Camera orbit (drag to rotate, wheel to zoom) ---
+let camYaw = 0;
+let camPitch = 0.62; // radians above horizontal
+let camDist = 12;
+let dragging = false;
+
+addEventListener('mousedown', (e) => {
+  if (e.target.tagName === 'CANVAS') dragging = true;
+});
+addEventListener('mouseup', () => (dragging = false));
+addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  camYaw -= e.movementX * 0.005;
+  camPitch = THREE.MathUtils.clamp(camPitch + e.movementY * 0.005, 0.15, 1.35);
+});
+addEventListener('wheel', (e) => {
+  camDist = THREE.MathUtils.clamp(camDist + e.deltaY * 0.01, 5, 25);
+});
+
 // --- Game loop (local movement is predicted client-side; server relays) ---
-const SPEED = 8;
+const WALK_SPEED = 8;
+const SPRINT_SPEED = 14;
+const GRAVITY = 30;
+const JUMP_V = 9;
+let vy = 0;
+let airborne = false;
 const clock = new THREE.Clock();
 let elapsed = DAY_LENGTH * 0.2; // overwritten by server snapshots; offset = mid-morning start
 
@@ -244,23 +268,50 @@ function tick() {
   elapsed += dt; // advance locally between snapshots
 
   if (self) {
-    const dir = new THREE.Vector3(
-      (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0),
-      0,
-      (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0)
-    );
+    // camera-relative movement: W walks away from the camera
+    const fwd = new THREE.Vector3(-Math.sin(camYaw), 0, -Math.cos(camYaw));
+    const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    const dir = new THREE.Vector3()
+      .addScaledVector(fwd, (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0))
+      .addScaledVector(right, (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0));
     if (dir.lengthSq() > 0) {
       dir.normalize();
-      self.position.addScaledVector(dir, SPEED * dt);
+      const speed = keys.ShiftLeft || keys.ShiftRight ? SPRINT_SPEED : WALK_SPEED;
+      self.position.addScaledVector(dir, speed * dt);
       self.rotation.y = Math.atan2(dir.x, dir.z);
     }
     self.position.x = THREE.MathUtils.clamp(self.position.x, -58, 58);
     self.position.z = THREE.MathUtils.clamp(self.position.z, -58, 58);
-    self.position.y = heightAt(self.position.x, self.position.z);
 
-    const camTarget = self.position.clone().add(new THREE.Vector3(0, 7, 10));
-    camera.position.lerp(camTarget, 0.08);
-    camera.lookAt(self.position.x, self.position.y + 1, self.position.z);
+    // gravity & jumping over the terrain
+    const groundY = heightAt(self.position.x, self.position.z);
+    if (keys.Space && !airborne) {
+      vy = JUMP_V;
+      airborne = true;
+    }
+    if (airborne) {
+      vy -= GRAVITY * dt;
+      self.position.y += vy * dt;
+      if (self.position.y <= groundY) {
+        self.position.y = groundY;
+        vy = 0;
+        airborne = false;
+      }
+    } else {
+      self.position.y = groundY;
+    }
+
+    // orbit camera around the player
+    const camOffset = new THREE.Vector3(
+      Math.sin(camYaw) * Math.cos(camPitch),
+      Math.sin(camPitch),
+      Math.cos(camYaw) * Math.cos(camPitch)
+    ).multiplyScalar(camDist);
+    const camTarget = self.position.clone().add(camOffset);
+    // don't let the camera burrow into hills
+    camTarget.y = Math.max(camTarget.y, heightAt(camTarget.x, camTarget.z) + 1.2);
+    camera.position.lerp(camTarget, 0.12);
+    camera.lookAt(self.position.x, self.position.y + 1.2, self.position.z);
 
     // keep the shadow camera centred on the action as the sun orbits
     sun.target.position.copy(self.position);
