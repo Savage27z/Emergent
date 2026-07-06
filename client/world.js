@@ -88,7 +88,7 @@ export function buildWorld(scene) {
   terrain.receiveShadow = true;
   scene.add(terrain);
 
-  // Water
+  // Water (gentle level bob makes shorelines shimmer)
   const water = new THREE.Mesh(
     new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE),
     new THREE.MeshLambertMaterial({ color: 0x3a7ca5, transparent: true, opacity: 0.82 })
@@ -96,6 +96,9 @@ export function buildWorld(scene) {
   water.rotation.x = -Math.PI / 2;
   water.position.y = WATER_Y;
   scene.add(water);
+  scene.userData.waterBob = (elapsed) => {
+    water.position.y = WATER_Y + Math.sin(elapsed * 0.8) * 0.04;
+  };
 
   // Trees, rocks, grass tufts — placed on land only
   const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5230 });
@@ -274,6 +277,24 @@ export function makeDayNight(scene, sun, ambient) {
   const stars = new THREE.Points(starGeo, starMat);
   scene.add(stars);
 
+  // moon rides opposite the sun
+  const moon = new THREE.Mesh(
+    new THREE.SphereGeometry(2.2, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0xe8ecf5, fog: false, transparent: true, opacity: 0 })
+  );
+  scene.add(moon);
+
+  // fireflies around the village at night
+  const flyGeo = new THREE.BufferGeometry();
+  const flyBase = [];
+  for (let i = 0; i < 40; i++) {
+    flyBase.push(rand() * 24 - 12, 0.5 + rand() * 1.6, rand() * 24 - 12);
+  }
+  flyGeo.setAttribute('position', new THREE.Float32BufferAttribute([...flyBase], 3));
+  const flyMat = new THREE.PointsMaterial({ color: 0xd4f26a, size: 0.14, transparent: true, opacity: 0 });
+  const fireflies = new THREE.Points(flyGeo, flyMat);
+  scene.add(fireflies);
+
   const sky = new THREE.Color();
 
   return function update(elapsed, playerPos) {
@@ -290,8 +311,25 @@ export function makeDayNight(scene, sun, ambient) {
     scene.background.copy(sky);
     scene.fog.color.copy(sky);
 
-    starMat.opacity = Math.max(0, 1 - dayness * 3);
+    const nightness = Math.max(0, 1 - dayness * 3);
+    starMat.opacity = nightness;
     if (playerPos) stars.position.set(playerPos.x, 0, playerPos.z);
+
+    moon.position.set(-Math.cos(angle) * 80, -Math.sin(angle) * 80, -30);
+    if (playerPos) moon.position.add(new THREE.Vector3(playerPos.x, 0, playerPos.z));
+    moon.material.opacity = nightness;
+
+    // fireflies wander and glow after dark
+    flyMat.opacity = nightness * 0.9;
+    if (nightness > 0) {
+      const p = flyGeo.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        p.setX(i, flyBase[i * 3] + Math.sin(elapsed * 0.7 + i * 1.7) * 0.8);
+        p.setY(i, 0.6 + flyBase[i * 3 + 1] + Math.sin(elapsed * 1.1 + i * 2.3) * 0.3);
+        p.setZ(i, flyBase[i * 3 + 2] + Math.cos(elapsed * 0.5 + i) * 0.8);
+      }
+      p.needsUpdate = true;
+    }
 
     return t;
   };
