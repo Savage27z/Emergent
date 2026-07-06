@@ -86,80 +86,126 @@ function makeNameTag(text) {
 
 function makeHat(kind) {
   if (kind === 'cone') {
-    const hat = new THREE.Mesh(
-      new THREE.ConeGeometry(0.3, 0.55, 8),
-      toon(0xf2a0bd)
-    );
-    hat.position.y = 2.05;
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.19, 0.4, 8), toon(0xf2a0bd));
+    hat.position.y = 1.85;
     hat.castShadow = true;
     return hat;
   }
   if (kind === 'crown') {
     const hat = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.26, 0.21, 0.26, 6, 1, true),
+      new THREE.CylinderGeometry(0.15, 0.12, 0.16, 6, 1, true),
       toon(0xf2d27c, { side: THREE.DoubleSide })
     );
-    hat.position.y = 1.9;
+    hat.position.y = 1.74;
     hat.castShadow = true;
     return hat;
   }
   return null;
 }
 
-// little low-poly person: swinging limbs, eyes, optional hat
+// Messenger-style person: rounded proportioned body, hair cap, backpack,
+// chunky shoes. Shirt takes the player color; everything cel-shaded + inked.
+const SKIN = 0xf0c9a6;
+const HAIR = 0x4a3f4a; // dark plum, like the messenger kid
+const SHOE = 0xf4f1e8;
+const PACK = 0xefe9dc;
+
 function makePlayerMesh(color, name, hat = 'none') {
-  const base = new THREE.Color(color);
-  const skin = base.clone().lerp(new THREE.Color(0xffffff), 0.45);
-  const pants = base.clone().lerp(new THREE.Color(0x000000), 0.35);
-  const bodyMat = toon(base);
-  const skinMat = toon(skin);
+  const shirt = new THREE.Color(color);
+  const pants = shirt.clone().lerp(new THREE.Color(0x22202a), 0.55);
+  const shirtMat = toon(shirt);
   const pantsMat = toon(pants);
-  const eyeMat = toon(0x1a1a2e);
+  const skinMat = toon(SKIN);
+  const hairMat = toon(HAIR);
+  const shoeMat = toon(SHOE);
 
   const group = new THREE.Group();
 
-  const legGeo = new THREE.BoxGeometry(0.22, 0.65, 0.26);
-  legGeo.translate(0, -0.325, 0); // pivot at the hip
-  const legL = new THREE.Mesh(legGeo, pantsMat);
-  const legR = new THREE.Mesh(legGeo.clone(), pantsMat);
-  legL.position.set(-0.16, 0.65, 0);
-  legR.position.set(0.16, 0.65, 0);
+  // legs: capsules pivoted at the hip, shoes ride along
+  const makeLeg = (side) => {
+    const leg = new THREE.Group();
+    const limb = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.5, 4, 8), pantsMat);
+    limb.position.y = -0.36;
+    const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.095, 8, 8), shoeMat);
+    shoe.scale.set(1, 0.7, 1.5);
+    shoe.position.set(0, -0.68, 0.04);
+    limb.castShadow = true;
+    leg.add(limb, shoe);
+    leg.position.set(side * 0.09, 0.78, 0);
+    return leg;
+  };
+  const legL = makeLeg(-1);
+  const legR = makeLeg(1);
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.7, 0.4), bodyMat);
-  body.position.y = 1.0;
+  // torso: capsule in the shirt color
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.155, 0.3, 4, 10), shirtMat);
+  torso.scale.set(1.15, 1, 0.85);
+  torso.position.y = 1.08;
+  torso.castShadow = true;
 
-  const armGeo = new THREE.BoxGeometry(0.16, 0.6, 0.2);
-  armGeo.translate(0, -0.3, 0); // pivot at the shoulder
-  const armL = new THREE.Mesh(armGeo, bodyMat);
-  const armR = new THREE.Mesh(armGeo.clone(), bodyMat);
-  armL.position.set(-0.42, 1.32, 0);
-  armR.position.set(0.42, 1.32, 0);
+  // arms: skin capsules with a short sleeve, pivoted at the shoulder
+  const makeArm = (side) => {
+    const arm = new THREE.Group();
+    const limb = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.42, 4, 8), skinMat);
+    limb.position.y = -0.26;
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.062, 0.16, 8), shirtMat);
+    sleeve.position.y = -0.08;
+    limb.castShadow = true;
+    arm.add(limb, sleeve);
+    arm.position.set(side * 0.235, 1.32, 0);
+    arm.rotation.z = side * 0.08; // relaxed, slightly out
+    return arm;
+  };
+  const armL = makeArm(-1);
+  const armR = makeArm(1);
 
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.42, 0.42), skinMat);
-  head.position.y = 1.57;
-  const eyeGeo = new THREE.BoxGeometry(0.07, 0.07, 0.04);
+  // head + hair cap + eyes
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.165, 14, 12), skinMat);
+  head.scale.set(1, 1.08, 1);
+  head.position.y = 1.56;
+  head.castShadow = true;
+  const hair = new THREE.Mesh(
+    new THREE.SphereGeometry(0.185, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.58),
+    hairMat
+  );
+  hair.position.set(0, 1.585, -0.02);
+  hair.rotation.x = -0.22; // fringe falls forward
+  const eyeGeo = new THREE.SphereGeometry(0.021, 6, 6);
+  const eyeMat = toon(0x2a2430);
   const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
   const eyeR = new THREE.Mesh(eyeGeo.clone(), eyeMat);
-  eyeL.position.set(-0.11, 1.6, 0.22);
-  eyeR.position.set(0.11, 1.6, 0.22);
+  eyeL.position.set(-0.062, 1.57, 0.148);
+  eyeR.position.set(0.062, 1.57, 0.148);
 
-  for (const m of [legL, legR, body, armL, armR, head]) m.castShadow = true;
-  group.add(legL, legR, body, armL, armR, head, eyeL, eyeR);
+  // little backpack
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.3, 0.13), toon(PACK));
+  pack.position.set(0, 1.14, -0.19);
+  const strapGeo = new THREE.BoxGeometry(0.035, 0.26, 0.02);
+  const strapL = new THREE.Mesh(strapGeo, toon(PACK));
+  strapL.position.set(-0.09, 1.2, -0.11);
+  const strapR = new THREE.Mesh(strapGeo.clone(), toon(PACK));
+  strapR.position.set(0.09, 1.2, -0.11);
+
+  group.add(legL, legR, torso, armL, armR, head, hair, eyeL, eyeR, pack, strapL, strapR);
 
   const tag = makeNameTag(name);
-  tag.position.y = 2.5;
+  tag.position.y = 2.25;
   group.add(tag);
   const hatMesh = makeHat(hat);
   if (hatMesh) group.add(hatMesh);
 
   // walk ∈ [0,1]; t drives the stride
   group.userData.animate = (walk, t) => {
-    const swing = Math.sin(t * 9) * 0.7 * walk;
+    const swing = Math.sin(t * 9) * 0.65 * walk;
     legL.rotation.x = swing;
     legR.rotation.x = -swing;
-    armL.rotation.x = -swing * 0.8;
-    armR.rotation.x = swing * 0.8;
-    body.position.y = 1.0 + Math.abs(Math.sin(t * 9)) * 0.05 * walk;
+    armL.rotation.x = -swing * 0.75;
+    armR.rotation.x = swing * 0.75;
+    const bob = Math.abs(Math.sin(t * 9)) * 0.04 * walk;
+    torso.position.y = 1.08 + bob;
+    head.position.y = 1.56 + bob;
+    hair.position.y = 1.585 + bob;
+    torso.rotation.x = walk * 0.08; // slight forward lean when moving
   };
   return group;
 }
