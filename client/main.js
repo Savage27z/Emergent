@@ -327,6 +327,8 @@ function tick() {
   }
 
   const timeOfDay = updateDayNight(elapsed, self?.position);
+  scene.userData.flicker?.(elapsed);
+  scene.userData.driftClouds?.(dt);
   updateHud(playerCount, timeOfDay);
 
   renderer.render(scene, camera);

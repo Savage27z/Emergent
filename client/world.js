@@ -139,6 +139,112 @@ export function buildWorld(scene) {
     tuft.position.set(x, h + 0.1, z);
     scene.add(tuft);
   }
+
+  buildVillage(scene);
+  buildClouds(scene, rand);
+}
+
+// --- Village at spawn: the NPCs' future home ---
+function makeHouse(wallColor) {
+  const house = new THREE.Group();
+  const walls = new THREE.Mesh(
+    new THREE.BoxGeometry(3, 2.2, 2.6),
+    new THREE.MeshLambertMaterial({ color: wallColor })
+  );
+  walls.position.y = 1.1;
+  const roof = new THREE.Mesh(
+    new THREE.ConeGeometry(2.6, 1.6, 4),
+    new THREE.MeshLambertMaterial({ color: 0x8a4b32 })
+  );
+  roof.position.y = 3;
+  roof.rotation.y = Math.PI / 4;
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 1.3, 0.1),
+    new THREE.MeshLambertMaterial({ color: 0x5a3a22 })
+  );
+  door.position.set(0, 0.65, 1.33);
+  walls.castShadow = roof.castShadow = true;
+  house.add(walls, roof, door);
+  return house;
+}
+
+export const CAMPFIRE_POS = new THREE.Vector3(0, 0, 0);
+
+function buildVillage(scene) {
+  const houses = [
+    { x: -6, z: -4, ry: 0.6, color: 0xd9c8a9 },
+    { x: 6, z: -5, ry: -0.7, color: 0xc9a9a0 },
+    { x: 0, z: -8, ry: 0, color: 0xb9c4a5 },
+    { x: -5, z: 5, ry: 2.4, color: 0xd9c8a9 },
+  ];
+  for (const h of houses) {
+    const house = makeHouse(h.color);
+    house.position.set(h.x, heightAt(h.x, h.z), h.z);
+    house.rotation.y = h.ry;
+    scene.add(house);
+  }
+
+  // campfire at the village centre
+  CAMPFIRE_POS.set(0, heightAt(0, 0), 0);
+  const fire = new THREE.Group();
+  const logMat = new THREE.MeshLambertMaterial({ color: 0x5a3a22 });
+  for (let i = 0; i < 3; i++) {
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.1, 5), logMat);
+    log.rotation.z = Math.PI / 2.3;
+    log.rotation.y = (i / 3) * Math.PI;
+    log.position.y = 0.12;
+    fire.add(log);
+  }
+  const flame = new THREE.Mesh(
+    new THREE.ConeGeometry(0.28, 0.7, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff9a3c })
+  );
+  flame.position.y = 0.5;
+  fire.add(flame);
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x8d8d84 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const stone = new THREE.Mesh(new THREE.DodecahedronGeometry(0.16, 0), stoneMat);
+    stone.position.set(Math.cos(a) * 0.75, 0.08, Math.sin(a) * 0.75);
+    fire.add(stone);
+  }
+  fire.position.copy(CAMPFIRE_POS);
+  scene.add(fire);
+
+  // firelight matters at night
+  const fireLight = new THREE.PointLight(0xff8a2a, 12, 18, 1.8);
+  fireLight.position.set(CAMPFIRE_POS.x, CAMPFIRE_POS.y + 1, CAMPFIRE_POS.z);
+  scene.add(fireLight);
+
+  // flicker (exported via userData so main.js can call it in the loop)
+  scene.userData.flicker = (elapsed) => {
+    fireLight.intensity = 10 + Math.sin(elapsed * 11) * 1.6 + Math.sin(elapsed * 23) * 1.1;
+    flame.scale.setScalar(1 + Math.sin(elapsed * 13) * 0.12);
+  };
+}
+
+function buildClouds(scene, rand) {
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  const clouds = [];
+  for (let i = 0; i < 10; i++) {
+    const cloud = new THREE.Group();
+    const puffs = 3 + Math.floor(rand() * 3);
+    for (let p = 0; p < puffs; p++) {
+      const s = 1.5 + rand() * 2.5;
+      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), mat);
+      puff.position.set(p * 2.2 - puffs, rand() * 0.8, rand() * 2 - 1);
+      cloud.add(puff);
+    }
+    cloud.position.set(rand() * 160 - 80, 26 + rand() * 8, rand() * 160 - 80);
+    scene.add(cloud);
+    clouds.push(cloud);
+  }
+  scene.userData.driftClouds = (dt) => {
+    for (const c of clouds) {
+      c.position.x += dt * 0.6;
+      if (c.position.x > 90) c.position.x = -90;
+    }
+  };
 }
 
 // --- Day/night cycle ---
