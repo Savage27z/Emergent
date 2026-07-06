@@ -5,9 +5,9 @@ import { buildWorld, heightAt, makeDayNight, DAY_LENGTH, BOUND, toon } from './w
 // --- Scene ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87b5e0);
-scene.fog = new THREE.Fog(0x8fd4c9, 55, 170); // far enough to see the mountains
+scene.fog = new THREE.Fog(0x8fd4c9, 90, 340); // far enough to see the range across the island
 
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 400);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 1400);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -415,7 +415,7 @@ addEventListener('wheel', (e) => {
 
 // --- Game loop (local movement is predicted client-side; server relays) ---
 const WALK_SPEED = 8;
-const SPRINT_SPEED = 14;
+const SPRINT_SPEED = 20; // the island is big now
 const GRAVITY = 30;
 const JUMP_V = 9;
 let vy = 0;

@@ -9,8 +9,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const WORLD_SEED = 20260706;
-export const WORLD_SIZE = 240; // island spans [-120, 120]
-export const BOUND = 105; // walkable limit
+export const WORLD_SIZE = 720; // island spans [-360, 360]
+export const BOUND = 340; // walkable limit
 export const WATER_Y = -0.55;
 
 // --- Cel shading: every surface uses a 3-step toon material ---
@@ -71,12 +71,12 @@ function fbm(x, z) {
 // --- Regions ---
 // mountainAmount: 0 in the south, 1 deep in the north where the peaks live
 function mountainAmount(x, z) {
-  return smooth(clamp01((-z - 38) / 34));
+  return smooth(clamp01((-z - 100) / 90));
 }
 // snowAmount: snowy lowland north + anything high enough
 export function snowAmount(x, z, h = heightAt(x, z)) {
-  const northern = smooth(clamp01((-z - 48) / 14));
-  const alpine = smooth(clamp01((h - 11) / 5));
+  const northern = smooth(clamp01((-z - 135) / 40));
+  const alpine = smooth(clamp01((h - 12) / 6));
   return Math.max(northern, alpine);
 }
 
@@ -87,23 +87,26 @@ export function heightAt(x, z) {
   if (m > 0) {
     const n = fbm(x + 500, z + 500);
     const ridged = Math.pow(clamp01((n - 0.32) / 0.5), 2);
-    h += m * (5 + ridged * 48);
+    h += m * (7 + ridged * 85);
   }
   const r = Math.hypot(x, z);
   // flatten toward spawn so the village plaza is walkable
   const flat = Math.max(0, 1 - r / 22);
   h = h * (1 - smooth(flat)) + 0.55 * smooth(flat);
   // the world is an island: sink toward the sea at the edges
-  const edge = smooth(clamp01((r - 98) / 20));
+  const edge = smooth(clamp01((r - 315) / 35));
   h = h * (1 - edge) + -3 * edge;
   return h;
 }
 
 // forest bands (kept off the mountains and village)
 const FORESTS = [
-  { x: 34, z: 20, r: 24 },
-  { x: -30, z: 26, r: 18 },
-  { x: 20, z: -28, r: 16 }, // pine belt at the mountain foot
+  { x: 100, z: 60, r: 65 },
+  { x: -95, z: 85, r: 50 },
+  { x: 34, z: 20, r: 24 }, // the near woods, just past the village fence
+  { x: 60, z: -95, r: 45 }, // pine belt at the mountain foot
+  { x: -160, z: -20, r: 55 },
+  { x: 40, z: 190, r: 70 }, // the deep southern forest
 ];
 function forestAmount(x, z) {
   let f = 0;
@@ -119,7 +122,7 @@ export function buildWorld(scene) {
   const rng = (min, max) => min + rand() * (max - min);
 
   // Terrain mesh with vertex colors by height + region
-  const segs = 220;
+  const segs = 480; // big island, keep vertex density reasonable
   const geo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, segs, segs);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -149,7 +152,7 @@ export function buildWorld(scene) {
 
   // Ocean
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(1200, 1200),
+    new THREE.PlaneGeometry(3000, 3000),
     toon(0x6cc4c9, { transparent: true, opacity: 0.9 })
   );
   water.material.userData.outlineParameters = { visible: false };
@@ -187,9 +190,9 @@ export function buildWorld(scene) {
   };
 
   // scattered trees island-wide + dense forests
-  for (let i = 0; i < 90; i++) placeTree(rng(-BOUND, BOUND), rng(-BOUND, BOUND), false);
+  for (let i = 0; i < 380; i++) placeTree(rng(-BOUND, BOUND), rng(-BOUND, BOUND), false);
   let planted = 0;
-  for (let i = 0; i < 900 && planted < 260; i++) {
+  for (let i = 0; i < 4000 && planted < 1000; i++) {
     const fo = FORESTS[i % FORESTS.length];
     const a = rand() * Math.PI * 2;
     const rr = Math.sqrt(rand()) * fo.r;
@@ -199,7 +202,7 @@ export function buildWorld(scene) {
   }
 
   // rocks — more of them near the mountains
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 240; i++) {
     const x = rng(-BOUND, BOUND), z = rng(-BOUND, BOUND);
     const h = heightAt(x, z);
     if (h < WATER_Y + 0.2) continue;
@@ -210,7 +213,7 @@ export function buildWorld(scene) {
   }
 
   // grass tufts on green land only
-  for (let i = 0; i < 160; i++) {
+  for (let i = 0; i < 550; i++) {
     const x = rng(-BOUND, BOUND), z = rng(-BOUND, BOUND);
     const h = heightAt(x, z);
     if (h < WATER_Y + 0.3 || snowAmount(x, z, h) > 0.3) continue;
@@ -425,23 +428,23 @@ function buildVillage(scene) {
 function buildClouds(scene, rand) {
   const mat = toon(0xf4f9f0, { transparent: true, opacity: 0.92 });
   const clouds = [];
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 40; i++) {
     const cloud = new THREE.Group();
     const puffs = 3 + Math.floor(rand() * 3);
     for (let p = 0; p < puffs; p++) {
-      const s = 1.8 + rand() * 3;
+      const s = 2.2 + rand() * 4;
       const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), mat);
-      puff.position.set(p * 2.4 - puffs, rand() * 0.8, rand() * 2 - 1);
+      puff.position.set(p * 3 - puffs * 1.4, rand() * 1, rand() * 2.6 - 1.3);
       cloud.add(puff);
     }
-    cloud.position.set(rand() * 240 - 120, 34 + rand() * 10, rand() * 240 - 120);
+    cloud.position.set(rand() * 720 - 360, 55 + rand() * 20, rand() * 720 - 360);
     scene.add(cloud);
     clouds.push(cloud);
   }
   scene.userData.driftClouds = (dt) => {
     for (const c of clouds) {
-      c.position.x += dt * 0.6;
-      if (c.position.x > 130) c.position.x = -130;
+      c.position.x += dt * 0.8;
+      if (c.position.x > 380) c.position.x = -380;
     }
   };
 }
@@ -450,12 +453,12 @@ function buildClouds(scene, rand) {
 function buildBirds(scene, rand) {
   const birdMat = toon(0x4a4640);
   const flocks = [];
-  for (let f = 0; f < 3; f++) {
+  for (let f = 0; f < 7; f++) {
     const flock = {
-      cx: rand() * 100 - 50,
-      cz: rand() * 100 - 50,
-      r: 14 + rand() * 18,
-      h: 16 + rand() * 12,
+      cx: rand() * 400 - 200,
+      cz: rand() * 400 - 200,
+      r: 18 + rand() * 30,
+      h: 20 + rand() * 25,
       speed: 0.12 + rand() * 0.1,
       angle: rand() * Math.PI * 2,
       birds: [],
@@ -567,7 +570,7 @@ function buildCritters(scene, rand) {
     return g;
   };
 
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 32; i++) {
     const fo = FORESTS[i % FORESTS.length];
     const a = rand() * Math.PI * 2;
     const rr = Math.sqrt(rand()) * fo.r * 0.8;
@@ -624,7 +627,7 @@ export function makeDayNight(scene, sun, ambient) {
     horizonColor: { value: new THREE.Color(0xf4f1e0) },
   };
   const skyDome = new THREE.Mesh(
-    new THREE.SphereGeometry(320, 24, 12),
+    new THREE.SphereGeometry(900, 24, 12),
     new THREE.ShaderMaterial({
       uniforms: skyUniforms,
       side: THREE.BackSide,
@@ -652,7 +655,7 @@ export function makeDayNight(scene, sun, ambient) {
   for (let i = 0; i < 350; i++) {
     const theta = rand() * Math.PI * 2;
     const phi = rand() * Math.PI * 0.45;
-    const r = 200;
+    const r = 600;
     starPos.push(
       r * Math.sin(phi) * Math.cos(theta),
       r * Math.cos(phi),
@@ -660,13 +663,13 @@ export function makeDayNight(scene, sun, ambient) {
     );
   }
   starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-  const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2, transparent: true, opacity: 0, fog: false });
+  const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 5, transparent: true, opacity: 0, fog: false });
   const stars = new THREE.Points(starGeo, starMat);
   scene.add(stars);
 
   // moon rides opposite the sun
   const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(4, 12, 12),
+    new THREE.SphereGeometry(11, 12, 12),
     new THREE.MeshBasicMaterial({ color: 0xe8ecf5, fog: false, transparent: true, opacity: 0 })
   );
   scene.add(moon);
@@ -707,7 +710,7 @@ export function makeDayNight(scene, sun, ambient) {
     starMat.opacity = nightness;
     if (playerPos) stars.position.set(px, 0, pz);
 
-    moon.position.set(px - Math.cos(angle) * 150, -Math.sin(angle) * 150, pz - 60);
+    moon.position.set(px - Math.cos(angle) * 450, -Math.sin(angle) * 450, pz - 160);
     moon.material.opacity = nightness;
 
     for (const glow of scene.userData.lanterns ?? []) glow.intensity = nightness * 4 + duskness * 2;

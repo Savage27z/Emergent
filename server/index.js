@@ -72,9 +72,9 @@ io.on('connection', (socket) => {
   // the world is an island — pull far-out saved positions back to shore
   let sx = saved?.x ?? 0, sz = saved?.z ?? 0;
   const r = Math.hypot(sx, sz);
-  if (r > 88) {
-    sx = (sx / r) * 88;
-    sz = (sz / r) * 88;
+  if (r > 300) {
+    sx = (sx / r) * 300;
+    sz = (sz / r) * 300;
   }
   const player = { id: socket.id, pid, name, color, hat, x: sx, z: sz, ry: saved?.ry ?? 0 };
   players.set(socket.id, player);
@@ -88,8 +88,8 @@ io.on('connection', (socket) => {
   socket.on('move', (data) => {
     const p = players.get(socket.id);
     if (!p || typeof data?.x !== 'number' || typeof data?.z !== 'number') return;
-    p.x = Math.max(-105, Math.min(105, data.x));
-    p.z = Math.max(-105, Math.min(105, data.z));
+    p.x = Math.max(-340, Math.min(340, data.x));
+    p.z = Math.max(-340, Math.min(340, data.z));
     p.ry = typeof data.ry === 'number' ? data.ry : p.ry;
   });
 
