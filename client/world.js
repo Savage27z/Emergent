@@ -9,8 +9,11 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const WORLD_SEED = 20260706;
-export const WORLD_SIZE = 720; // island spans [-360, 360]
-export const BOUND = 340; // walkable limit
+// The island is elongated: south half is green, then the mountain belt
+// (z -100..-290), and beyond it the great snowfields stretch far north.
+export const WORLD_SIZE = 1200; // terrain plane spans [-600, 600]
+export const BOUND = 340; // walkable limit east/west/south
+export const Z_MIN = -580; // walkable limit deep north, past the range
 export const WATER_Y = -0.55;
 
 // --- Cel shading: every surface uses a 3-step toon material ---
@@ -71,7 +74,10 @@ function fbm(x, z) {
 // --- Regions ---
 // mountainAmount: 0 in the south, 1 deep in the north where the peaks live
 function mountainAmount(x, z) {
-  return smooth(clamp01((-z - 100) / 90));
+  // a belt, not an endless wall: rises at z=-100, fades out past z≈-235
+  const rise = smooth(clamp01((-z - 100) / 90));
+  const fade = 1 - smooth(clamp01((-z - 235) / 70));
+  return rise * fade;
 }
 // snowAmount: snowy lowland north + anything high enough
 export function snowAmount(x, z, h = heightAt(x, z)) {
@@ -93,8 +99,10 @@ export function heightAt(x, z) {
   // flatten toward spawn so the village plaza is walkable
   const flat = Math.max(0, 1 - r / 22);
   h = h * (1 - smooth(flat)) + 0.55 * smooth(flat);
-  // the world is an island: sink toward the sea at the edges
-  const edge = smooth(clamp01((r - 315) / 35));
+  // elongated island: northern distance counts for less, so the landmass
+  // stretches far past the range before it meets the sea
+  const re = Math.hypot(x, z < 0 ? z * 0.55 : z);
+  const edge = smooth(clamp01((re - 315) / 35));
   h = h * (1 - edge) + -3 * edge;
   return h;
 }
@@ -107,6 +115,8 @@ const FORESTS = [
   { x: 60, z: -95, r: 45 }, // pine belt at the mountain foot
   { x: -160, z: -20, r: 55 },
   { x: 40, z: 190, r: 70 }, // the deep southern forest
+  { x: -70, z: -380, r: 85 }, // snowfield groves, past the range
+  { x: 90, z: -460, r: 65 },
 ];
 function forestAmount(x, z) {
   let f = 0;
@@ -122,7 +132,7 @@ export function buildWorld(scene) {
   const rng = (min, max) => min + rand() * (max - min);
 
   // Terrain mesh with vertex colors by height + region
-  const segs = 480; // big island, keep vertex density reasonable
+  const segs = 560; // big island, keep vertex density reasonable
   const geo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, segs, segs);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -141,7 +151,7 @@ export function buildWorld(scene) {
     else if (h > 8 && h < 15) c.lerpColors(darkGrass, rock, clamp01((h - 8) / 7));
     else c.lerpColors(grass, darkGrass, clamp01(h / 8));
     const s = snowAmount(x, z, h);
-    if (h >= WATER_Y + 0.35 && s > 0) c.lerp(snow, s);
+    if (s > 0) c.lerp(snow, s); // snow buries even the shores up north
     colors.set([c.r, c.g, c.b], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -190,9 +200,12 @@ export function buildWorld(scene) {
   };
 
   // scattered trees island-wide + dense forests
-  for (let i = 0; i < 380; i++) placeTree(rng(-BOUND, BOUND), rng(-BOUND, BOUND), false);
+  for (let i = 0; i < 500; i++) {
+    const x = rng(-BOUND, BOUND), z = rng(Z_MIN, BOUND);
+    placeTree(x, z, snowAmount(x, z) > 0.4);
+  }
   let planted = 0;
-  for (let i = 0; i < 4000 && planted < 1000; i++) {
+  for (let i = 0; i < 6000 && planted < 1500; i++) {
     const fo = FORESTS[i % FORESTS.length];
     const a = rand() * Math.PI * 2;
     const rr = Math.sqrt(rand()) * fo.r;
@@ -202,8 +215,8 @@ export function buildWorld(scene) {
   }
 
   // rocks — more of them near the mountains
-  for (let i = 0; i < 240; i++) {
-    const x = rng(-BOUND, BOUND), z = rng(-BOUND, BOUND);
+  for (let i = 0; i < 320; i++) {
+    const x = rng(-BOUND, BOUND), z = rng(Z_MIN, BOUND);
     const h = heightAt(x, z);
     if (h < WATER_Y + 0.2) continue;
     const s = rng(0.25, 0.9) * (1 + mountainAmount(x, z) * 1.6);
@@ -437,7 +450,7 @@ function buildClouds(scene, rand) {
       puff.position.set(p * 3 - puffs * 1.4, rand() * 1, rand() * 2.6 - 1.3);
       cloud.add(puff);
     }
-    cloud.position.set(rand() * 720 - 360, 55 + rand() * 20, rand() * 720 - 360);
+    cloud.position.set(rand() * 720 - 360, 55 + rand() * 20, rand() * 920 - 580);
     scene.add(cloud);
     clouds.push(cloud);
   }
@@ -456,7 +469,7 @@ function buildBirds(scene, rand) {
   for (let f = 0; f < 7; f++) {
     const flock = {
       cx: rand() * 400 - 200,
-      cz: rand() * 400 - 200,
+      cz: rand() * 620 - 440,
       r: 18 + rand() * 30,
       h: 20 + rand() * 25,
       speed: 0.12 + rand() * 0.1,
@@ -570,7 +583,7 @@ function buildCritters(scene, rand) {
     return g;
   };
 
-  for (let i = 0; i < 32; i++) {
+  for (let i = 0; i < 40; i++) {
     const fo = FORESTS[i % FORESTS.length];
     const a = rand() * Math.PI * 2;
     const rr = Math.sqrt(rand()) * fo.r * 0.8;

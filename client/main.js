@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/addons/effects/OutlineEffect.js';
-import { buildWorld, heightAt, makeDayNight, DAY_LENGTH, BOUND, toon } from './world.js';
+import { buildWorld, heightAt, makeDayNight, DAY_LENGTH, BOUND, Z_MIN, toon } from './world.js';
 
 // --- Scene ---
 const scene = new THREE.Scene();
@@ -449,7 +449,7 @@ function tick() {
     selfStride += dt * (moving ? (sprinting ? 1.7 : 1) : 0);
     self.userData.animate(selfWalk, selfStride);
     self.position.x = THREE.MathUtils.clamp(self.position.x, -BOUND, BOUND);
-    self.position.z = THREE.MathUtils.clamp(self.position.z, -BOUND, BOUND);
+    self.position.z = THREE.MathUtils.clamp(self.position.z, Z_MIN, BOUND);
 
     // gravity & jumping over the terrain
     const groundY = heightAt(self.position.x, self.position.z);

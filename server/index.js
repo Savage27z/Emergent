@@ -69,12 +69,13 @@ io.on('connection', (socket) => {
     : saved?.color ?? PALETTE[n % PALETTE.length];
   const hat = ['none', 'cone', 'crown'].includes(auth.hat) ? auth.hat : saved?.hat ?? 'none';
 
-  // the world is an island — pull far-out saved positions back to shore
+  // the world is an elongated island — pull far-out saved positions ashore
+  // (northern distance counts for less; keep in sync with client/world.js)
   let sx = saved?.x ?? 0, sz = saved?.z ?? 0;
-  const r = Math.hypot(sx, sz);
-  if (r > 300) {
-    sx = (sx / r) * 300;
-    sz = (sz / r) * 300;
+  const re = Math.hypot(sx, sz < 0 ? sz * 0.55 : sz);
+  if (re > 300) {
+    sx = (sx / re) * 300;
+    sz = (sz / re) * 300;
   }
   const player = { id: socket.id, pid, name, color, hat, x: sx, z: sz, ry: saved?.ry ?? 0 };
   players.set(socket.id, player);
@@ -89,7 +90,7 @@ io.on('connection', (socket) => {
     const p = players.get(socket.id);
     if (!p || typeof data?.x !== 'number' || typeof data?.z !== 'number') return;
     p.x = Math.max(-340, Math.min(340, data.x));
-    p.z = Math.max(-340, Math.min(340, data.z));
+    p.z = Math.max(-580, Math.min(340, data.z)); // island stretches far north
     p.ry = typeof data.ry === 'number' ? data.ry : p.ry;
   });
 
