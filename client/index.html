@@ -45,6 +45,16 @@
     }
     #enter:hover { background: #4d9be4; }
     .hidden { display: none !important; }
+    #memories {
+      position: fixed; top: 12px; right: 12px; width: 320px; max-height: 70vh;
+      overflow-y: auto; background: rgba(10, 10, 18, 0.82); color: #cfe3ff;
+      font-family: monospace; font-size: 12px; border: 1px solid #2b2b44;
+      border-radius: 8px; padding: 12px 14px;
+    }
+    #memories h2 { font-size: 13px; margin: 0 0 8px; color: #f2a25c; letter-spacing: 1px; }
+    #memories .mem { margin: 0 0 7px; line-height: 1.35; }
+    #memories .mem .t { opacity: 0.45; margin-right: 6px; }
+    #memories .imp3 { color: #ffd9a0; }
   </style>
   <script type="importmap">
     {
@@ -56,6 +66,7 @@
 </head>
 <body>
   <div id="hud">EMERGENT — day 1<br />WASD to move</div>
+  <div id="memories" class="hidden"></div>
   <div id="join" class="hidden">
     <div class="card">
       <h1>EMERGENT</h1>

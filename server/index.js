@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const { DatabaseSync } = require('node:sqlite');
+const { MemoryStream } = require('../agents/memory');
 
 // --- Persistence ---
 // node:sqlite is flagged experimental on Node 25 but stable in practice;
@@ -30,12 +31,19 @@ const upsertPlayer = db.prepare(`
     x=excluded.x, z=excluded.z, ry=excluded.ry, last_seen=excluded.last_seen
 `);
 const countPlayers = db.prepare('SELECT COUNT(*) AS n FROM players');
+const memories = new MemoryStream(path.join(__dirname, '..', 'world.sqlite'));
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, '..', 'client')));
+
+// peek inside an agent's head
+app.get('/api/agents/:id/memories', (req, res) => {
+  const id = String(req.params.id).slice(0, 32);
+  res.json({ count: memories.count(id), memories: memories.recent(id, 30) });
+});
 
 // World state: the server's player table is the source of truth for who exists.
 // TODO(server-authority): positions are still client-reported; later the client
@@ -166,9 +174,48 @@ setInterval(() => {
     if (status !== npc.status) {
       npc.status = status;
       console.log(`[${dayT.toFixed(2)}] Ember is now ${status}`);
+      // self-observation: agents remember what they do
+      memories.observe(npc.id, `I am ${status}`, { importance: 2 });
     }
   }
 }, 100);
+
+// --- Perception: NPCs notice the world and write it to their memory stream ---
+const PERCEPTION_RADIUS = 7;
+let lastPhase = null;
+
+setInterval(() => {
+  const dayT = ((Date.now() - worldStart) / 1000 / DAY_LENGTH + TIME_OFFSET) % 1;
+
+  // world events everyone notices
+  const phase = dayT < 0.5 ? 'day' : 'night';
+  if (lastPhase && phase !== lastPhase) {
+    const text = phase === 'day' ? 'the sun rose over the village' : 'the sun set and the stars came out';
+    for (const npc of npcs) memories.observe(npc.id, text, { importance: 1 });
+  }
+  lastPhase = phase;
+
+  // who is near each NPC?
+  for (const npc of npcs) {
+    npc.nearby ??= new Map(); // pid -> name (pid survives reconnects, socket.id does not)
+    const current = new Map();
+    for (const p of players.values()) {
+      if (Math.hypot(p.x - npc.x, p.z - npc.z) <= PERCEPTION_RADIUS) current.set(p.pid, p.name);
+    }
+    for (const [pid, name] of current) {
+      if (!npc.nearby.has(pid)) {
+        memories.observe(npc.id, `${name} came over while I was ${npc.status}`, { importance: 3 });
+        console.log(`[perception] Ember noticed ${name}`);
+      }
+    }
+    for (const [pid, name] of npc.nearby) {
+      if (!current.has(pid)) {
+        memories.observe(npc.id, `${name} walked away`, { importance: 2 });
+      }
+    }
+    npc.nearby = current;
+  }
+}, 500);
 
 // broadcast a world snapshot at 20Hz (players + NPCs share the pipeline)
 // world time is server-owned so all clients share the same day/night

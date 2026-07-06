@@ -202,7 +202,7 @@ const hud = document.getElementById('hud');
 function updateHud(count, timeOfDay) {
   const icons = ['🌅', '☀️', '🌇', '🌙'];
   const icon = icons[Math.floor((timeOfDay ?? 0.25) * 4) % 4];
-  hud.innerHTML = `EMERGENT — day 1<br />WASD move · Space jump · Shift sprint · drag to look · C customize<br />${count} online · ${icon}`;
+  hud.innerHTML = `EMERGENT<br />WASD move · Space jump · Shift sprint · drag look · C customize · M memories<br />${count} online · ${icon}`;
 }
 
 let playerCount = 1;
@@ -283,7 +283,32 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' && document.getElementById('join').classList.contains('hidden')) {
     showJoinOverlay(loadProfile());
   }
+  if (e.code === 'KeyM') toggleMemoryPanel();
 });
+
+// --- Ember's memory panel (M) — a live window into the agent's memory stream ---
+let memTimer = null;
+function toggleMemoryPanel() {
+  const panel = document.getElementById('memories');
+  if (panel.classList.toggle('hidden')) {
+    clearInterval(memTimer);
+    memTimer = null;
+    return;
+  }
+  const render = async () => {
+    try {
+      const { count, memories: mems } = await (await fetch('/api/agents/npc-ember/memories')).json();
+      panel.innerHTML =
+        `<h2>EMBER'S MEMORY · ${count} total</h2>` +
+        mems.map((m) => {
+          const t = new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          return `<div class="mem${m.importance >= 3 ? ' imp3' : ''}"><span class="t">${t}</span>${m.text}</div>`;
+        }).join('');
+    } catch { /* server briefly unavailable */ }
+  };
+  render();
+  memTimer = setInterval(render, 2000);
+}
 addEventListener('keyup', (e) => (keys[e.code] = false));
 
 // --- Camera orbit (drag to rotate, wheel to zoom) ---
